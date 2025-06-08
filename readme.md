@@ -20,7 +20,7 @@ In classical music, a sonata consists of multiple movements working together to 
 ```bash
 # Clone the repository
 git clone https://github.com/pablitxn/sonata-mcp-server
-cd sonata-mcp-server
+cd sonata-mcp-server.py
 
 # Install dependencies
 pip install -e .
@@ -32,8 +32,8 @@ pip install -e .
 cp .env.example .env
 # Edit .env with your settings
 
-# Run the MCP server
-python -m sonata.server
+# Run the MCP server.py
+python -m sonata.server.py
 ```
 
 ## 📋 Features
