@@ -1,10 +1,4 @@
-import asyncio
-from mcp_server.server import mcp, run
+from mcp_server.server import mcp
 
-
-async def main():
-    await run()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# The mcp object is exported for the MCP CLI to use
+__all__ = ['mcp']
