@@ -1,22 +1,200 @@
 """
-Pytest configuration
+Pytest configuration and shared fixtures for the test suite.
 """
 import pytest
 import asyncio
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Dict, Any
+from unittest.mock import AsyncMock, MagicMock
+import sys
+from pathlib import Path
+
+# Add project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+# Import fixtures from our fixtures module
+from tests.fixtures.browser_fixtures import *
+from tests.fixtures.mock_responses import *
+
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """Create event loop for async tests"""
+    """Create event loop for async tests."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
 
+
 @pytest.fixture
-async def browser_engine():
-    """Fixture for browser engine"""
-    from src.browser.engine import BrowserEngine
-    engine = BrowserEngine()
-    await engine.initialize()
-    yield engine
-    await engine.cleanup()
+def anyio_backend():
+    """Backend for anyio async tests."""
+    return "asyncio"
+
+
+@pytest.fixture
+async def mock_browser_factory():
+    """Mock browser factory for testing."""
+    from src.browser.factory import BrowserEngineFactory
+    from src.browser.protocols import BrowserPageProtocol
+    
+    mock_instance = AsyncMock()
+    
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(BrowserEngineFactory, "get_instance", lambda *args, **kwargs: mock_instance)
+        yield mock_instance
+
+
+@pytest.fixture
+def test_browser_config():
+    """Test browser configuration."""
+    from src.browser.protocols import BrowserConfig
+    
+    return BrowserConfig(
+        browser_type="chromium",
+        headless=True,
+        args=["--no-sandbox", "--disable-setuid-sandbox"]
+    )
+
+
+@pytest.fixture
+async def temp_test_server(tmp_path):
+    """Create a temporary test server for integration tests."""
+    import aiohttp
+    from aiohttp import web
+    
+    # Create test HTML files
+    test_files = {
+        "index.html": "<html><body><h1>Test Server</h1></body></html>",
+        "form.html": """
+        <html><body>
+            <form id="test-form">
+                <input type="text" name="username" id="username">
+                <input type="password" name="password" id="password">
+                <button type="submit">Submit</button>
+            </form>
+        </body></html>
+        """,
+        "ajax.html": """
+        <html><body>
+            <div id="content">Initial</div>
+            <script>
+                setTimeout(() => {
+                    document.getElementById('content').innerHTML = 'Updated';
+                }, 100);
+            </script>
+        </body></html>
+        """
+    }
+    
+    # Write files to temp directory
+    for filename, content in test_files.items():
+        (tmp_path / filename).write_text(content)
+    
+    # Create simple web server
+    app = web.Application()
+    
+    async def serve_file(request):
+        filename = request.match_info.get('filename', 'index.html')
+        filepath = tmp_path / filename
+        if filepath.exists():
+            return web.Response(text=filepath.read_text(), content_type='text/html')
+        return web.Response(status=404)
+    
+    app.router.add_get('/', lambda r: serve_file(r))
+    app.router.add_get('/{filename}', serve_file)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, 'localhost', 0)
+    await site.start()
+    
+    port = site._server.sockets[0].getsockname()[1]
+    base_url = f"http://localhost:{port}"
+    
+    yield base_url
+    
+    await runner.cleanup()
+
+
+@pytest.fixture
+def mock_mcp_server():
+    """Mock MCP server for testing tools."""
+    from mcp import Server
+    
+    server = Server("test-server")
+    return server
+
+
+@pytest.fixture
+def capture_logs():
+    """Capture logs during tests."""
+    import logging
+    from io import StringIO
+    
+    log_capture = StringIO()
+    handler = logging.StreamHandler(log_capture)
+    handler.setLevel(logging.DEBUG)
+    
+    # Add handler to root logger
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
+    
+    yield log_capture
+    
+    # Clean up
+    root_logger.removeHandler(handler)
+
+
+@pytest.fixture
+def mock_env_vars(monkeypatch):
+    """Mock environment variables for testing."""
+    test_env = {
+        "BROWSER_TYPE": "chromium",
+        "HEADLESS": "true",
+        "TIMEOUT": "30",
+        "LOG_LEVEL": "INFO"
+    }
+    
+    for key, value in test_env.items():
+        monkeypatch.setenv(key, value)
+    
+    return test_env
+
+
+@pytest.fixture
+async def cleanup_browser_instances():
+    """Cleanup any browser instances after tests."""
+    yield
+    
+    # Cleanup Playwright browsers
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            for browser_type in [p.chromium, p.firefox, p.webkit]:
+                # This will close any lingering browser instances
+                pass
+    except:
+        pass
+
+
+# Test markers
+pytest.mark.slow = pytest.mark.slow
+pytest.mark.integration = pytest.mark.integration
+pytest.mark.unit = pytest.mark.unit
+pytest.mark.e2e = pytest.mark.e2e
+
+
+def pytest_configure(config):
+    """Configure pytest with custom markers."""
+    config.addinivalue_line(
+        "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+    )
+    config.addinivalue_line(
+        "markers", "integration: marks tests as integration tests"
+    )
+    config.addinivalue_line(
+        "markers", "unit: marks tests as unit tests"
+    )
+    config.addinivalue_line(
+        "markers", "e2e: marks tests as end-to-end tests"
+    )
