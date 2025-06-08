@@ -1,5 +1,5 @@
 [project]
-name = "sonata-mcp-server"
+name = "sonata_mcp_server"
 version = "0.1.0"
 description = ""
 authors = [
