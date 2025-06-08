@@ -2,6 +2,7 @@
 Pytest configuration and shared fixtures for the test suite.
 """
 import pytest
+import pytest_asyncio
 import asyncio
 from typing import AsyncGenerator, Dict, Any
 import sys
@@ -54,7 +55,7 @@ def test_browser_config():
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temp_test_server(tmp_path):
     """Create a temporary test server for integration tests."""
     import aiohttp
@@ -98,7 +99,7 @@ async def temp_test_server(tmp_path):
             return web.Response(text=filepath.read_text(), content_type='text/html')
         return web.Response(status=404)
     
-    app.router.add_get('/', lambda r: serve_file(r))
+    app.router.add_get('/', serve_file)
     app.router.add_get('/{filename}', serve_file)
     
     runner = web.AppRunner(app)

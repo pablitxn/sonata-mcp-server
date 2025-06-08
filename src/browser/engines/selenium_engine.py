@@ -96,8 +96,7 @@ class SeleniumContext(IBrowserContext):
 
         self._driver = await loop.run_in_executor(
             None,
-            webdriver.Chrome,
-            options=options
+            lambda: webdriver.Chrome(options=options)
         )
         return SeleniumPage(self._driver)
 

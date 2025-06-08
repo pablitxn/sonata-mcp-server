@@ -138,18 +138,21 @@ class TestBrowserIntegration:
             await page.fill("#username", "testuser")
             await page.fill("#password", "testpass")
             
-            # Submit form
-            await page.click("button[type='submit']")
-            
-            # Wait a bit for any form processing
-            await page.wait_for_selector("#username", timeout=1000)
-            
-            # Verify form values were set
+            # Verify form values were set before submission
             username_value = await page.evaluate(
                 "document.getElementById('username').value"
             )
+            password_value = await page.evaluate(
+                "document.getElementById('password').value"
+            )
             
             assert username_value == "testuser"
+            assert password_value == "testpass"
+            
+            # Test that we can click the submit button (form submission test)
+            await page.click("button[type='submit']")
+            
+            # The form will submit and page might reload, so we don't check values after
             
         finally:
             await engine.cleanup()

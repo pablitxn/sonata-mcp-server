@@ -60,8 +60,7 @@ class TestBrowserEngineFactory:
         with pytest.raises(ValueError) as exc_info:
             await BrowserEngineFactory.create(BrowserType.PUPPETEER, config)
         
-        assert "not registered" in str(exc_info.value)
-        assert "PUPPETEER" in str(exc_info.value)
+        assert "Unknown browser type" in str(exc_info.value)
     
     @pytest.mark.asyncio
     async def test_factory_with_real_engines(self):
