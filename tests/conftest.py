@@ -117,7 +117,7 @@ async def temp_test_server(tmp_path):
 
 @pytest.fixture
 def mock_mcp_server():
-    """Mock MCP server for testing tools."""
+    """Mock MCP server for testing mcp_server."""
     from unittest.mock import MagicMock
     from mcp.server.fastmcp import FastMCP
     

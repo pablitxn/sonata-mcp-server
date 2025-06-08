@@ -2,7 +2,7 @@ from mcp.server.fastmcp import FastMCP
 
 
 def register_basic_tools(mcp: FastMCP):
-    """Register basic tools with the MCP server."""
+    """Register basic mcp_server with the MCP server."""
     
     @mcp.tool()
     def add(a: int, b: int) -> int:

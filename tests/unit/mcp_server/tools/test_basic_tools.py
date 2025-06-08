@@ -4,7 +4,7 @@ from mcp.server.fastmcp import FastMCP
 
 
 class TestBasicTools:
-    """Test suite for basic MCP tools."""
+    """Test suite for basic MCP mcp_server."""
     
     @pytest.fixture
     def mock_mcp(self):
@@ -32,7 +32,7 @@ class TestBasicTools:
         return mock_mcp
     
     def test_register_basic_tools(self, mock_mcp):
-        """Test registering basic tools."""
+        """Test registering basic mcp_server."""
         from src.mcp_server.tools.basic_tools import register_basic_tools
         
         register_basic_tools(mock_mcp)

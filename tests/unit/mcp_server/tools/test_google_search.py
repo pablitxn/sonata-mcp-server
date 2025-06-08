@@ -25,7 +25,7 @@ class TestGoogleSearchTool:
     @pytest.fixture
     def mock_webdriver(self):
         """Mock Selenium WebDriver."""
-        with patch('src.mcp_server.tools.google_search.webdriver') as mock:
+        with patch('src.mcp_server.mcp_server.google_search.webdriver') as mock:
             mock_driver = MagicMock()
             mock_options = MagicMock()
             

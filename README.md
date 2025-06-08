@@ -76,7 +76,7 @@ prompt = """
 Check my tax status on AFIP and summarize any pending obligations
 """
 
-# The LLM can now use Sonata MCP tools:
+# The LLM can now use Sonata MCP mcp_server:
 # - sonata.authenticate(site="afip", credentials=vault_ref)
 # - sonata.navigate(path="/tax-status")
 # - sonata.extract_data(selector=".obligations")

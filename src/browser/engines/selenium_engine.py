@@ -48,6 +48,9 @@ class SeleniumPage(IPage):
 
     async def evaluate(self, script: str) -> Any:
         loop = asyncio.get_event_loop()
+        # If script is just a property access, wrap it in a return statement
+        if not script.strip().startswith('return') and 'function' not in script:
+            script = f"return {script}"
         return await loop.run_in_executor(
             None,
             self._driver.execute_script,

@@ -5,7 +5,7 @@ DEFAULT_USER_ID = "user"
 
 
 def register_memory_tools(mcp: FastMCP):
-    """Register memory tools with the MCP server."""
+    """Register memory mcp_server with the MCP server."""
     
     @mcp.tool()
     async def save_memory(ctx: Context, text: str) -> str:

@@ -3,6 +3,10 @@
 import asyncio
 import os
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from src.browser.factory import BrowserEngineFactory
 from src.browser.interfaces import BrowserConfig
@@ -28,10 +32,10 @@ async def main():
     browser_factory = BrowserEngineFactory()
 
     # Configure secure session storage
+    # If no encryption key is provided, it will generate one automatically
     session_storage = EncryptedSessionStorage(
         storage_path="/tmp/afip_sessions",
-        # In production, use a secure key from environment variables
-        encryption_key=os.getenv("AFIP_SESSION_KEY")
+        encryption_key=None  # Will auto-generate a key
     )
 
     # Configure captcha solvers chain
@@ -66,9 +70,9 @@ async def main():
     )
 
     try:
-        # Credentials (in production, obtain securely)
+        # Credentials from environment variables
         credentials = AFIPCredentials(
-            cuit=os.getenv("AFIP_CUIT", "20-12345678-9"),
+            cuit=os.getenv("AFIP_CUIT", "20123456789"),  # Default without hyphens
             password=os.getenv("AFIP_PASSWORD", "password")
         )
 

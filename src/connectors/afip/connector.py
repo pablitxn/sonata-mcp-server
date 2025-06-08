@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import structlog
+from selenium.common.exceptions import TimeoutException
 
 from src.browser.factory import BrowserEngineFactory
 from src.browser.interfaces import BrowserConfig, IBrowserContext, IPage
@@ -303,15 +304,35 @@ class AFIPConnector(IAFIPConnector):
             # Step 3: Navigate to the AFIP login page
             self.logger.info("navigating_to_login")
             await self._page.goto(self.LOGIN_URL, wait_until="networkidle")
+            
+            # Give the page time to fully load (AFIP can be slow)
+            await asyncio.sleep(3)
 
             # Step 4: Wait for the login form to load
-            await self._page.wait_for_selector('input[name="user"]', timeout=10000)
+            # AFIP uses JSF (JavaServer Faces) which generates IDs like F1:username
+            await self._page.wait_for_selector('input[name="F1:username"]', timeout=20000)
 
-            # Step 5: Fill in the login credentials
-            await self._page.fill('input[name="user"]', credentials.cuit)
-            await self._page.fill('input[name="password"]', credentials.password)
+            # Step 5: Enter CUIT (numeric only - remove any hyphens if present)
+            # AFIP's CUIT field only accepts numeric input
+            cuit_numeric = credentials.cuit.replace("-", "")
+            await self._page.fill('input[name="F1:username"]', cuit_numeric)
+            
+            # Click "Siguiente" (Next) to proceed
+            await self._page.click('input[id="F1:btnSiguiente"]')
+            
+            # Wait for next page/field to load
+            await asyncio.sleep(2)  # Small delay for page transition
+            
+            # Step 6: Enter password
+            # Wait for password field to appear (AFIP uses F1:password)
+            try:
+                await self._page.wait_for_selector('input[name="F1:password"]', timeout=10000)
+                await self._page.fill('input[name="F1:password"]', credentials.password)
+            except TimeoutException:
+                self.logger.error("password_field_not_found")
+                return LoginStatus.FAILED
 
-            # Step 6: Check for and handle captcha challenges
+            # Step 7: Check for and handle captcha challenges
             captcha_info = await self._detect_captcha(self._page)
             if captcha_info:
                 self.logger.info("captcha_detected", type=captcha_info["type"])
@@ -321,18 +342,20 @@ class AFIPConnector(IAFIPConnector):
                     # Return failure if captcha couldn't be solved
                     return LoginStatus.CAPTCHA_REQUIRED
 
-            # Step 7: Submit the login form
-            await self._page.click('button[type="submit"], input[type="submit"]')
+            # Step 8: Submit the login form
+            # AFIP uses "Ingresar" button with ID F1:btnIngresar
+            await self._page.click('input[id="F1:btnIngresar"]')
 
-            # Step 8: Wait for navigation and check login result
-            try:
-                # Look for logout button/link as indicator of successful login
-                await self._page.wait_for_selector(
-                    'a[href*="logout"], button[id*="logout"]',
-                    timeout=15000
-                )
+            # Step 9: Wait for navigation and check login result
+            await asyncio.sleep(3)  # Give time for navigation
+            
+            # Check if we've been redirected to the portal
+            current_url = await self._page.evaluate("window.location.href")
+            
+            if "portalcf.cloud.afip.gob.ar/portal/app" in current_url:
+                self.logger.info("login_successful", url=current_url)
 
-                # Step 9: Login successful - save the session for future use
+                # Step 10: Login successful - save the session for future use
                 # Extract all cookies from the browser context
                 cookies = await self._context.get_cookies()
 
@@ -352,9 +375,8 @@ class AFIPConnector(IAFIPConnector):
 
                 self.logger.info("login_successful", cuit=credentials.cuit)
                 return LoginStatus.SUCCESS
-
-            except Exception:
-                # Step 10: Login failed - determine the reason
+            else:
+                # Step 11: Login failed - determine the reason
                 # Check if the failure is due to certificate requirement
                 requires_cert = await self._page.evaluate("""
                     () => {
@@ -368,6 +390,7 @@ class AFIPConnector(IAFIPConnector):
                     return LoginStatus.CERTIFICATE_REQUIRED
 
                 # Generic login failure
+                self.logger.error("login_failed", current_url=current_url)
                 return LoginStatus.FAILED
 
         except Exception as e:
