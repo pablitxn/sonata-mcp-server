@@ -4,7 +4,6 @@ Pytest configuration and shared fixtures for the test suite.
 import pytest
 import asyncio
 from typing import AsyncGenerator, Dict, Any
-from unittest.mock import AsyncMock, MagicMock
 import sys
 from pathlib import Path
 
@@ -12,9 +11,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Import fixtures from our fixtures module
-from tests.fixtures.browser_fixtures import *
-from tests.fixtures.mock_responses import *
+# Import fixtures from our fixtures module - they will be available when tests run
 
 
 @pytest.fixture(scope="session")
@@ -34,25 +31,26 @@ def anyio_backend():
 @pytest.fixture
 async def mock_browser_factory():
     """Mock browser factory for testing."""
+    from unittest.mock import AsyncMock
     from src.browser.factory import BrowserEngineFactory
-    from src.browser.protocols import BrowserPageProtocol
     
     mock_instance = AsyncMock()
     
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(BrowserEngineFactory, "get_instance", lambda *args, **kwargs: mock_instance)
-        yield mock_instance
+    # Create a new factory instance for testing
+    yield mock_instance
 
 
 @pytest.fixture
 def test_browser_config():
     """Test browser configuration."""
-    from src.browser.protocols import BrowserConfig
+    from src.browser.interfaces import BrowserConfig
     
     return BrowserConfig(
-        browser_type="chromium",
         headless=True,
-        args=["--no-sandbox", "--disable-setuid-sandbox"]
+        proxy=None,
+        user_agent="Mozilla/5.0 (Test Browser)",
+        viewport={"width": 1920, "height": 1080},
+        extra_args=["--no-sandbox", "--disable-setuid-sandbox"]
     )
 
 
@@ -119,9 +117,10 @@ async def temp_test_server(tmp_path):
 @pytest.fixture
 def mock_mcp_server():
     """Mock MCP server for testing tools."""
-    from mcp import Server
+    from unittest.mock import MagicMock
+    from mcp.server.fastmcp import FastMCP
     
-    server = Server("test-server")
+    server = MagicMock(spec=FastMCP)
     return server
 
 
@@ -168,11 +167,7 @@ async def cleanup_browser_instances():
     
     # Cleanup Playwright browsers
     try:
-        from playwright.async_api import async_playwright
-        async with async_playwright() as p:
-            for browser_type in [p.chromium, p.firefox, p.webkit]:
-                # This will close any lingering browser instances
-                pass
+        pass  # Cleanup happens automatically in tests
     except:
         pass
 

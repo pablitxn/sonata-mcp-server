@@ -2,15 +2,13 @@
 """
 Testing with mock implementations
 """
-from abc import ABC
-
 import pytest
 from unittest.mock import AsyncMock
 
 from src.browser.interfaces import IPage, IBrowserEngine
 
 
-class MockPage(IPage, ABC):
+class MockPage(IPage):
     """Mock implementation for testing"""
 
     def __init__(self):
@@ -22,8 +20,24 @@ class MockPage(IPage, ABC):
 
     async def click(self, selector: str) -> None:
         self.clicked_selectors.append(selector)
-
-    # ... implement other methods
+    
+    async def wait_for_selector(self, selector: str, timeout: int = 30000) -> None:
+        pass
+    
+    async def fill(self, selector: str, value: str) -> None:
+        pass
+    
+    async def evaluate(self, script: str) -> any:
+        return {"result": "mock"}
+    
+    async def screenshot(self) -> bytes:
+        return b"mock_screenshot"
+    
+    async def content(self) -> str:
+        return "<html><body>Mock content</body></html>"
+    
+    async def close(self) -> None:
+        pass
 
 
 @pytest.mark.asyncio

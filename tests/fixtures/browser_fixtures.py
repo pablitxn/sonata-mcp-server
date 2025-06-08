@@ -1,71 +1,102 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from src.browser.protocols import BrowserConfig, BrowserResponse, PageScreenshot
-from src.browser.interfaces import BrowserInterface
+from unittest.mock import AsyncMock, MagicMock, Mock
+from typing import Dict, List, Optional, Any
+from src.browser.interfaces import BrowserConfig, BrowserType, IPage, IBrowserContext, IBrowserEngine
 
 
 @pytest.fixture
 def browser_config():
     """Default browser configuration for tests."""
     return BrowserConfig(
-        browser_type="chromium",
         headless=True,
-        args=["--no-sandbox", "--disable-gpu"]
+        proxy=None,
+        user_agent="Mozilla/5.0 (Test Browser)",
+        viewport={"width": 1920, "height": 1080},
+        extra_args=["--no-sandbox", "--disable-gpu"]
     )
 
 
 @pytest.fixture
-def mock_browser_response():
-    """Mock browser response object."""
-    return BrowserResponse(
-        url="https://example.com",
-        title="Example Page",
-        content="<html><body><h1>Welcome</h1><p>Test content</p></body></html>",
-        status_code=200
-    )
-
-
-@pytest.fixture
-def mock_screenshot():
-    """Mock screenshot object."""
-    return PageScreenshot(
-        data=b"fake_screenshot_data",
-        format="png"
-    )
-
-
-@pytest.fixture
-def mock_browser_interface():
-    """Mock browser interface for testing."""
-    mock = AsyncMock(spec=BrowserInterface)
+def mock_page():
+    """Mock IPage implementation."""
+    page = AsyncMock(spec=IPage)
     
     # Setup default return values
-    mock.navigate.return_value = BrowserResponse(
-        url="https://example.com",
-        title="Test Page",
-        content="<html><body>Test</body></html>",
-        status_code=200
-    )
-    mock.screenshot.return_value = PageScreenshot(
-        data=b"screenshot_data",
-        format="png"
-    )
-    mock.execute_script.return_value = {"result": "success"}
+    page.goto.return_value = None
+    page.wait_for_selector.return_value = None
+    page.click.return_value = None
+    page.fill.return_value = None
+    page.evaluate.return_value = {"result": "success"}
+    page.screenshot.return_value = b"fake_screenshot_data"
+    page.content.return_value = "<html><body>Test content</body></html>"
+    page.close.return_value = None
     
-    return mock
+    return page
 
 
 @pytest.fixture
-async def async_browser_interface():
-    """Async browser interface fixture."""
-    from src.browser.engines.playwright_engine import PlaywrightEngine
+def mock_browser_context():
+    """Mock IBrowserContext implementation."""
+    context = AsyncMock(spec=IBrowserContext)
+    mock_page_instance = AsyncMock(spec=IPage)
     
-    engine = PlaywrightEngine()
-    yield engine
+    context.new_page.return_value = mock_page_instance
+    context.close.return_value = None
+    context.set_cookies.return_value = None
+    context.get_cookies.return_value = []
     
-    # Cleanup
-    if engine._browser:
-        await engine.close()
+    return context
+
+
+@pytest.fixture
+def mock_browser_engine():
+    """Mock IBrowserEngine implementation."""
+    engine = AsyncMock(spec=IBrowserEngine)
+    mock_context = AsyncMock(spec=IBrowserContext)
+    
+    engine.initialize.return_value = None
+    engine.create_context.return_value = mock_context
+    engine.cleanup.return_value = None
+    engine.is_initialized = True
+    
+    return engine
+
+
+@pytest.fixture
+def mock_playwright():
+    """Mock Playwright objects."""
+    with pytest.MonkeyPatch.context() as mp:
+        mock_playwright = AsyncMock()
+        mock_browser = AsyncMock()
+        mock_context = AsyncMock()
+        mock_page = AsyncMock()
+        
+        # Setup page methods
+        mock_page.goto.return_value = None
+        mock_page.title.return_value = "Test Page"
+        mock_page.content.return_value = "<html><body>Test</body></html>"
+        mock_page.screenshot.return_value = b"screenshot_data"
+        mock_page.evaluate.return_value = {"status": "ok"}
+        
+        # Setup context
+        mock_context.new_page.return_value = mock_page
+        
+        # Setup browser
+        mock_browser.new_context.return_value = mock_context
+        
+        # Setup playwright
+        mock_playwright.chromium.launch.return_value = mock_browser
+        mock_playwright.firefox.launch.return_value = mock_browser
+        mock_playwright.webkit.launch.return_value = mock_browser
+        
+        mp.setattr("playwright.async_api.async_playwright", lambda: mock_playwright)
+        
+        yield {
+            'playwright': mock_playwright,
+            'browser': mock_browser,
+            'context': mock_context,
+            'page': mock_page
+        }
 
 
 @pytest.fixture
@@ -137,75 +168,49 @@ def browser_test_pages():
 
 
 @pytest.fixture
-def mock_webdriver():
+def mock_selenium_webdriver():
     """Mock Selenium WebDriver for testing."""
-    driver = MagicMock()
-    
-    # Setup common properties
-    driver.title = "Test Page"
-    driver.current_url = "https://example.com"
-    driver.page_source = "<html><body>Test</body></html>"
-    
-    # Setup methods
-    driver.get_screenshot_as_png.return_value = b"screenshot_data"
-    driver.execute_script.return_value = {"status": "ok"}
-    
-    # Mock find_element
-    element = MagicMock()
-    element.text = "Element text"
-    element.get_attribute.return_value = "attribute_value"
-    driver.find_element.return_value = element
-    
-    return driver
-
-
-@pytest.fixture
-def mock_playwright_page():
-    """Mock Playwright page object."""
-    page = AsyncMock()
-    
-    # Setup properties
-    page.title.return_value = "Test Page"
-    page.url = "https://example.com"
-    page.content.return_value = "<html><body>Test</body></html>"
-    
-    # Setup methods
-    page.screenshot.return_value = b"screenshot_data"
-    page.evaluate.return_value = {"status": "ok"}
-    
-    # Mock selectors
-    page.query_selector.return_value = AsyncMock()
-    page.query_selector_all.return_value = [AsyncMock(), AsyncMock()]
-    
-    return page
-
-
-@pytest.fixture
-def browser_engine_config():
-    """Configuration for different browser engines."""
-    return {
-        "playwright": {
-            "chromium": {
-                "headless": True,
-                "args": ["--no-sandbox"]
-            },
-            "firefox": {
-                "headless": True
-            },
-            "webkit": {
-                "headless": True
-            }
-        },
-        "selenium": {
-            "chrome": {
-                "headless": True,
-                "args": ["--no-sandbox", "--disable-gpu"]
-            },
-            "firefox": {
-                "headless": True
-            },
-            "edge": {
-                "headless": True
-            }
+    with pytest.MonkeyPatch.context() as mp:
+        mock_driver = MagicMock()
+        mock_chrome_options = MagicMock()
+        mock_firefox_options = MagicMock()
+        
+        # Setup driver properties
+        mock_driver.title = "Test Page"
+        mock_driver.current_url = "https://example.com"
+        mock_driver.page_source = "<html><body>Test</body></html>"
+        
+        # Setup driver methods
+        mock_driver.get.return_value = None
+        mock_driver.find_element.return_value = MagicMock()
+        mock_driver.execute_script.return_value = {"status": "ok"}
+        mock_driver.save_screenshot.return_value = True
+        mock_driver.quit.return_value = None
+        
+        # Mock element
+        mock_element = MagicMock()
+        mock_element.click.return_value = None
+        mock_element.send_keys.return_value = None
+        mock_element.clear.return_value = None
+        mock_driver.find_element.return_value = mock_element
+        
+        # Setup options
+        mock_chrome_options.add_argument.return_value = None
+        mock_firefox_options.add_argument.return_value = None
+        
+        # Mock webdriver module
+        mock_webdriver = MagicMock()
+        mock_webdriver.Chrome.return_value = mock_driver
+        mock_webdriver.Firefox.return_value = mock_driver
+        mock_webdriver.ChromeOptions.return_value = mock_chrome_options
+        mock_webdriver.FirefoxOptions.return_value = mock_firefox_options
+        
+        mp.setattr("selenium.webdriver", mock_webdriver)
+        
+        yield {
+            'webdriver': mock_webdriver,
+            'driver': mock_driver,
+            'chrome_options': mock_chrome_options,
+            'firefox_options': mock_firefox_options,
+            'element': mock_element
         }
-    }

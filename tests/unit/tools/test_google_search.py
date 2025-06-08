@@ -1,194 +1,141 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from src.mcp_server.tools.google_search import GoogleSearchTool
-from src.browser.protocols import BrowserResponse
-
-
-@pytest.fixture
-def mock_browser_instance():
-    """Mock browser instance for testing."""
-    mock_instance = AsyncMock()
-    return mock_instance
-
-
-@pytest.fixture
-def mock_browser_factory(mock_browser_instance):
-    """Mock browser factory."""
-    with patch('src.mcp_server.tools.google_search.BrowserFactory') as mock_factory:
-        mock_factory.get_instance.return_value = mock_browser_instance
-        yield mock_factory
-
-
-@pytest.fixture
-def google_search_tool():
-    """Create GoogleSearchTool instance."""
-    return GoogleSearchTool()
+from mcp.server.fastmcp import FastMCP, Context
 
 
 class TestGoogleSearchTool:
-    """Test suite for GoogleSearchTool."""
+    """Test suite for Google Search MCP tool."""
     
-    async def test_search_basic(self, google_search_tool, mock_browser_instance):
-        """Test basic Google search."""
-        mock_browser_instance.navigate.return_value = BrowserResponse(
-            url="https://www.google.com/search?q=test+query",
-            title="test query - Google Search",
-            content='''
-            <div class="g">
-                <h3>Result 1 Title</h3>
-                <a href="https://example1.com">Example 1</a>
-                <span>Description for result 1</span>
-            </div>
-            <div class="g">
-                <h3>Result 2 Title</h3>
-                <a href="https://example2.com">Example 2</a>
-                <span>Description for result 2</span>
-            </div>
-            ''',
-            status_code=200
-        )
+    @pytest.fixture
+    def mock_mcp(self):
+        """Create mock FastMCP instance."""
+        # Create a mock that tracks decorated functions
+        mock_mcp = MagicMock()
+        mock_mcp._tools = {}
         
-        results = await google_search_tool.search("test query")
+        def mock_tool_decorator():
+            def decorator(func):
+                mock_mcp._tools[func.__name__] = func
+                return func
+            return decorator
         
-        assert len(results) == 2
-        assert results[0]["title"] == "Result 1 Title"
-        assert results[0]["url"] == "https://example1.com"
-        assert "Description for result 1" in results[0]["snippet"]
+        mock_mcp.tool = mock_tool_decorator
+        return mock_mcp
     
-    async def test_search_with_num_results(self, google_search_tool, mock_browser_instance):
-        """Test search with custom number of results."""
-        mock_browser_instance.navigate.return_value = BrowserResponse(
-            url="https://www.google.com/search?q=test&num=5",
-            title="test - Google Search",
-            content='<div class="g">Result</div>' * 5,
-            status_code=200
-        )
-        
-        results = await google_search_tool.search("test", num_results=5)
-        
-        expected_url = "https://www.google.com/search?q=test&num=5"
-        mock_browser_instance.navigate.assert_called_with(expected_url, timeout=30)
+    @pytest.fixture
+    def mock_webdriver(self):
+        """Mock Selenium WebDriver."""
+        with patch('src.mcp_server.tools.google_search.webdriver') as mock:
+            mock_driver = MagicMock()
+            mock_options = MagicMock()
+            
+            # Setup driver with Spanish date results
+            mock_driver.find_element.return_value.text = "Hoy es 6 de enero de 2025"
+            mock_driver.find_elements.return_value = [
+                MagicMock(text="Lunes, 6 de enero de 2025"),
+                MagicMock(text="Resultado de búsqueda 1"),
+                MagicMock(text="Resultado de búsqueda 2")
+            ]
+            mock_driver.quit.return_value = None
+            
+            # Setup options
+            mock.Chrome.return_value = mock_driver
+            mock.ChromeOptions.return_value = mock_options
+            
+            yield {
+                'webdriver': mock,
+                'driver': mock_driver,
+                'options': mock_options
+            }
     
-    async def test_search_with_lang(self, google_search_tool, mock_browser_instance):
-        """Test search with language parameter."""
-        mock_browser_instance.navigate.return_value = BrowserResponse(
-            url="https://www.google.com/search?q=test&hl=es",
-            title="test - Google Search",
-            content='<div class="g">Resultado</div>',
-            status_code=200
-        )
+    def test_register_google_search_tool(self, mock_mcp):
+        """Test registering Google search tool."""
+        from src.mcp_server.tools.google_search import register_google_search_tool
         
-        await google_search_tool.search("test", lang="es")
+        register_google_search_tool(mock_mcp)
         
-        expected_url = "https://www.google.com/search?q=test&hl=es"
-        mock_browser_instance.navigate.assert_called_with(expected_url, timeout=30)
+        # Check that search_google_today_wrapper was registered
+        assert 'search_google_today_wrapper' in mock_mcp._tools
     
-    async def test_parse_search_results(self, google_search_tool):
-        """Test parsing search results from HTML."""
-        html_content = '''
-        <div class="g">
-            <h3>Python Programming</h3>
-            <a href="https://python.org">Python.org</a>
-            <span>Official Python website with documentation</span>
-        </div>
-        <div class="g">
-            <h3>Learn Python</h3>
-            <a href="https://learnpython.org">Learn Python</a>
-            <span>Interactive Python tutorial</span>
-        </div>
-        '''
+    @pytest.mark.asyncio
+    async def test_search_google_today_wrapper(self, mock_mcp, mock_webdriver):
+        """Test the wrapper function."""
+        from src.mcp_server.tools.google_search import register_google_search_tool
         
-        results = google_search_tool._parse_search_results(html_content)
+        register_google_search_tool(mock_mcp)
         
-        assert len(results) == 2
-        assert results[0]["title"] == "Python Programming"
-        assert results[0]["url"] == "https://python.org"
-        assert "Official Python website" in results[0]["snippet"]
+        wrapper_func = mock_mcp._tools['search_google_today_wrapper']
+        
+        # Create mock context
+        mock_context = MagicMock(spec=Context)
+        
+        # Call the wrapper
+        result = await wrapper_func(mock_context)
+        
+        # Should return a string with results
+        assert isinstance(result, str)
+        assert len(result) > 0
+        
+        # Verify driver was used
+        mock_webdriver['driver'].get.assert_called_once_with("https://www.google.com")
+        mock_webdriver['driver'].quit.assert_called_once()
     
-    async def test_parse_empty_results(self, google_search_tool):
-        """Test parsing when no results found."""
-        html_content = '<div>No results found</div>'
+    @pytest.mark.asyncio
+    async def test_search_google_today_no_results(self, mock_mcp, mock_webdriver):
+        """Test when no results are found."""
+        from src.mcp_server.tools.google_search import register_google_search_tool
         
-        results = google_search_tool._parse_search_results(html_content)
+        # Setup empty results
+        mock_webdriver['driver'].find_elements.return_value = []
+        mock_webdriver['driver'].find_element.return_value.text = ""
         
-        assert len(results) == 0
+        register_google_search_tool(mock_mcp)
+        
+        wrapper_func = mock_mcp._tools['search_google_today_wrapper']
+        
+        # Create mock context
+        mock_context = MagicMock(spec=Context)
+        
+        result = await wrapper_func(mock_context)
+        
+        # Should return error message
+        assert "No se encontraron resultados" in result
     
-    async def test_search_with_site_filter(self, google_search_tool, mock_browser_instance):
-        """Test search with site filter."""
-        mock_browser_instance.navigate.return_value = BrowserResponse(
-            url="https://www.google.com/search?q=python+site%3Agithub.com",
-            title="python site:github.com - Google Search",
-            content='<div class="g">GitHub result</div>',
-            status_code=200
-        )
+    @pytest.mark.asyncio
+    async def test_search_google_today_error_handling(self, mock_mcp, mock_webdriver):
+        """Test error handling in search."""
+        from src.mcp_server.tools.google_search import register_google_search_tool
         
-        await google_search_tool.search("python site:github.com")
+        # Make driver.get raise an exception
+        mock_webdriver['driver'].get.side_effect = Exception("Network error")
         
-        expected_url = "https://www.google.com/search?q=python+site%3Agithub.com"
-        mock_browser_instance.navigate.assert_called_with(expected_url, timeout=30)
+        register_google_search_tool(mock_mcp)
+        
+        wrapper_func = mock_mcp._tools['search_google_today_wrapper']
+        
+        # Create mock context
+        mock_context = MagicMock(spec=Context)
+        
+        result = await wrapper_func(mock_context)
+        
+        # Should return error message
+        assert "Error" in result
+        assert "Network error" in result
+        
+        # Ensure quit is still called
+        mock_webdriver['driver'].quit.assert_called_once()
     
-    async def test_search_error_handling(self, google_search_tool, mock_browser_instance):
-        """Test error handling during search."""
-        mock_browser_instance.navigate.side_effect = Exception("Network error")
+    def test_wrapper_function_structure(self, mock_mcp):
+        """Test the structure of the wrapper function."""
+        from src.mcp_server.tools.google_search import register_google_search_tool
         
-        with pytest.raises(Exception, match="Network error"):
-            await google_search_tool.search("test query")
-    
-    async def test_extract_clean_url(self, google_search_tool):
-        """Test extracting clean URL from Google redirect."""
-        google_url = "/url?q=https://example.com/page&sa=U&ved=xyz"
-        clean_url = google_search_tool._extract_clean_url(google_url)
+        register_google_search_tool(mock_mcp)
         
-        assert clean_url == "https://example.com/page"
-    
-    async def test_extract_clean_url_direct(self, google_search_tool):
-        """Test extracting URL when it's already direct."""
-        direct_url = "https://example.com/page"
-        clean_url = google_search_tool._extract_clean_url(direct_url)
+        wrapper_func = mock_mcp._tools['search_google_today_wrapper']
         
-        assert clean_url == direct_url
-    
-    async def test_build_search_url(self, google_search_tool):
-        """Test building search URL with parameters."""
-        url = google_search_tool._build_search_url(
-            query="machine learning",
-            num_results=10,
-            lang="en"
-        )
+        # Check function name
+        assert wrapper_func.__name__ == 'search_google_today_wrapper'
         
-        assert "q=machine+learning" in url
-        assert "num=10" in url
-        assert "hl=en" in url
-        assert url.startswith("https://www.google.com/search?")
-    
-    async def test_search_with_special_characters(self, google_search_tool, mock_browser_instance):
-        """Test search with special characters in query."""
-        mock_browser_instance.navigate.return_value = BrowserResponse(
-            url="https://www.google.com/search?q=test+%26+special+%23chars",
-            title="test & special #chars - Google Search",
-            content='<div class="g">Result</div>',
-            status_code=200
-        )
-        
-        await google_search_tool.search("test & special #chars")
-        
-        # Check URL encoding
-        call_args = mock_browser_instance.navigate.call_args[0][0]
-        assert "%26" in call_args or "&" in call_args  # & encoded
-        assert "%23" in call_args or "#" in call_args  # # encoded
-    
-    async def test_search_timeout(self, google_search_tool, mock_browser_instance):
-        """Test search with custom timeout."""
-        mock_browser_instance.navigate.return_value = BrowserResponse(
-            url="https://www.google.com/search?q=test",
-            title="test - Google Search",
-            content='<div class="g">Result</div>',
-            status_code=200
-        )
-        
-        await google_search_tool.search("test", timeout=60)
-        
-        mock_browser_instance.navigate.assert_called_with(
-            "https://www.google.com/search?q=test",
-            timeout=60
-        )
+        # Check it's an async function
+        import inspect
+        assert inspect.iscoroutinefunction(wrapper_func)

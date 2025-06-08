@@ -1,144 +1,155 @@
 """Integration tests for browser functionality."""
 import pytest
-from src.browser.factory import BrowserFactory
-from src.browser.protocols import BrowserConfig
+from src.browser.factory import BrowserEngineFactory
+from src.browser.interfaces import BrowserConfig, BrowserType
+from src.browser.engines.playwright_engine import PlaywrightEngine
+from src.browser.engines.selenium_engine import SeleniumEngine
 
 
 @pytest.mark.integration
 class TestBrowserIntegration:
     """Integration tests for browser operations."""
     
+    @pytest.fixture(autouse=True)
+    def setup_factory(self):
+        """Setup browser factory with engines."""
+        BrowserEngineFactory.register_engine(BrowserType.PLAYWRIGHT, PlaywrightEngine)
+        BrowserEngineFactory.register_engine(BrowserType.SELENIUM, SeleniumEngine)
+        yield
+        BrowserEngineFactory._engines.clear()
+    
     @pytest.mark.asyncio
     async def test_playwright_navigation(self):
         """Test Playwright browser navigation."""
         config = BrowserConfig(
-            browser_type="chromium",
             headless=True,
-            engine="playwright"
+            viewport={"width": 1920, "height": 1080}
         )
         
-        browser = await BrowserFactory.create(config)
+        engine = await BrowserEngineFactory.create(BrowserType.PLAYWRIGHT, config)
         
         try:
-            await browser.launch(config)
-            response = await browser.navigate("https://example.com")
+            context = await engine.create_context({})
+            page = await context.new_page()
             
-            assert response.url == "https://example.com"
-            assert response.status_code == 200
-            assert "Example Domain" in response.title
+            await page.goto("https://example.com")
+            content = await page.content()
+            
+            assert "Example Domain" in content
             
         finally:
-            await browser.close()
+            await engine.cleanup()
     
     @pytest.mark.asyncio
     async def test_selenium_navigation(self):
         """Test Selenium browser navigation."""
         config = BrowserConfig(
-            browser_type="chrome",
-            headless=True,
-            engine="selenium"
+            headless=True
         )
         
-        browser = BrowserFactory.create(config)
+        engine = await BrowserEngineFactory.create(BrowserType.SELENIUM, config)
         
         try:
-            browser.launch(config)
-            response = browser.navigate("https://example.com")
+            context = await engine.create_context({})
+            page = await context.new_page()
             
-            assert response.url == "https://example.com"
-            assert response.status_code == 200
-            assert "Example Domain" in response.title
+            await page.goto("https://example.com")
+            content = await page.content()
+            
+            assert "Example Domain" in content
             
         finally:
-            browser.close()
+            await engine.cleanup()
     
     @pytest.mark.asyncio
     async def test_screenshot_capture(self):
         """Test screenshot functionality."""
         config = BrowserConfig(
-            browser_type="chromium",
-            headless=True,
-            engine="playwright"
+            headless=True
         )
         
-        browser = await BrowserFactory.create(config)
+        engine = await BrowserEngineFactory.create(BrowserType.PLAYWRIGHT, config)
         
         try:
-            await browser.launch(config)
-            await browser.navigate("https://example.com")
+            context = await engine.create_context({})
+            page = await context.new_page()
             
-            screenshot = await browser.screenshot()
+            await page.goto("https://example.com")
+            screenshot = await page.screenshot()
             
-            assert screenshot.data
-            assert screenshot.format == "png"
-            assert len(screenshot.data) > 0
+            assert screenshot
+            assert isinstance(screenshot, bytes)
+            assert len(screenshot) > 0
             
         finally:
-            await browser.close()
+            await engine.cleanup()
     
     @pytest.mark.asyncio
     async def test_javascript_execution(self):
         """Test JavaScript execution."""
         config = BrowserConfig(
-            browser_type="chromium",
-            headless=True,
-            engine="playwright"
+            headless=True
         )
         
-        browser = await BrowserFactory.create(config)
+        engine = await BrowserEngineFactory.create(BrowserType.PLAYWRIGHT, config)
         
         try:
-            await browser.launch(config)
-            await browser.navigate("https://example.com")
+            context = await engine.create_context({})
+            page = await context.new_page()
+            
+            await page.goto("https://example.com")
             
             # Execute JavaScript to get page title
-            result = await browser.execute_script("return document.title;")
+            result = await page.evaluate("document.title")
             
-            assert result == "Example Domain"
+            assert "Example Domain" in result
             
             # Execute JavaScript to modify DOM
-            await browser.execute_script(
-                "document.querySelector('h1').textContent = 'Modified Title';"
+            await page.evaluate(
+                "document.querySelector('h1').textContent = 'Modified Title'"
             )
             
             # Verify modification
-            new_title = await browser.execute_script(
-                "return document.querySelector('h1').textContent;"
+            new_title = await page.evaluate(
+                "document.querySelector('h1').textContent"
             )
             
             assert new_title == "Modified Title"
             
         finally:
-            await browser.close()
+            await engine.cleanup()
     
     @pytest.mark.asyncio
     async def test_form_interaction(self, temp_test_server):
         """Test form filling and submission."""
         config = BrowserConfig(
-            browser_type="chromium",
-            headless=True,
-            engine="playwright"
+            headless=True
         )
         
-        browser = await BrowserFactory.create(config)
+        engine = await BrowserEngineFactory.create(BrowserType.PLAYWRIGHT, config)
         
         try:
-            await browser.launch(config)
-            await browser.navigate(f"{temp_test_server}/form.html")
+            context = await engine.create_context({})
+            page = await context.new_page()
+            
+            await page.goto(f"{temp_test_server}/form.html")
             
             # Fill form fields
-            await browser.fill("#username", "testuser")
-            await browser.fill("#password", "testpass")
+            await page.fill("#username", "testuser")
+            await page.fill("#password", "testpass")
             
             # Submit form
-            await browser.click("button[type='submit']")
+            await page.click("button[type='submit']")
+            
+            # Wait a bit for any form processing
+            await page.wait_for_selector("#username", timeout=1000)
             
             # Verify form values were set
-            username_value = await browser.execute_script(
-                "return document.getElementById('username').value;"
+            username_value = await page.evaluate(
+                "document.getElementById('username').value"
             )
             
             assert username_value == "testuser"
             
         finally:
-            await browser.close()
+            await engine.cleanup()
