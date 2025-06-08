@@ -1,4 +1,16 @@
-"""Circuit Breaker para manejo resiliente de servicios de captcha."""
+"""Circuit Breaker for resilient captcha service handling.
+
+This module implements the Circuit Breaker pattern to protect against cascading failures
+when external captcha solving services become unavailable or unresponsive.
+
+The circuit breaker has three states:
+- CLOSED: Normal operation, requests pass through
+- OPEN: Service is failing, requests are blocked
+- HALF_OPEN: Testing if service has recovered
+
+This implementation helps maintain system stability and provides graceful degradation
+when captcha services experience issues.
+"""
 
 import asyncio
 from dataclasses import dataclass, field
@@ -12,24 +24,36 @@ logger = structlog.get_logger()
 
 
 class CircuitState(Enum):
-    """Estados del circuit breaker."""
-    CLOSED = "closed"  # Normal, permite llamadas
-    OPEN = "open"      # Falla, bloquea llamadas
-    HALF_OPEN = "half_open"  # Prueba si el servicio se recuperó
+    """Circuit breaker states.
+    
+    The circuit breaker transitions between these states based on
+    the success or failure of protected calls.
+    """
+    CLOSED = "closed"  # Normal operation, allows calls
+    OPEN = "open"      # Failure detected, blocks calls
+    HALF_OPEN = "half_open"  # Testing if service has recovered
 
 
 @dataclass
 class CircuitBreakerConfig:
-    """Configuración del circuit breaker."""
-    failure_threshold: int = 5  # Número de fallas para abrir el circuito
-    recovery_timeout: timedelta = timedelta(seconds=60)  # Tiempo antes de probar de nuevo
-    success_threshold: int = 3  # Éxitos necesarios para cerrar desde half-open
-    max_consecutive_failures: int = 3  # Fallas consecutivas permitidas
+    """Configuration for circuit breaker behavior.
+    
+    These parameters control when the circuit breaker opens, how long it stays open,
+    and what conditions are required to close it again.
+    """
+    failure_threshold: int = 5  # Number of failures to open the circuit
+    recovery_timeout: timedelta = timedelta(seconds=60)  # Time before attempting recovery
+    success_threshold: int = 3  # Successes needed to close from half-open state
+    max_consecutive_failures: int = 3  # Consecutive failures allowed before opening
 
 
 @dataclass
 class CircuitBreakerState:
-    """Estado interno del circuit breaker."""
+    """Internal state of the circuit breaker.
+    
+    Tracks failure counts, success counts, and timing information
+    to determine state transitions.
+    """
     state: CircuitState = CircuitState.CLOSED
     failure_count: int = 0
     success_count: int = 0
@@ -39,14 +63,20 @@ class CircuitBreakerState:
 
 
 class CircuitBreaker:
-    """Circuit breaker para proteger servicios externos."""
+    """Circuit breaker for protecting external services.
+    
+    This class implements the circuit breaker pattern to prevent cascading failures
+    when external services (like captcha solvers) become unavailable. It monitors
+    call success/failure rates and temporarily blocks calls when failure thresholds
+    are exceeded.
+    """
     
     def __init__(self, name: str, config: Optional[CircuitBreakerConfig] = None):
-        """Inicializa el circuit breaker.
+        """Initialize the circuit breaker.
         
         Args:
-            name: Nombre del servicio protegido.
-            config: Configuración del circuit breaker.
+            name: Name of the protected service (for logging and identification).
+            config: Circuit breaker configuration. Uses defaults if not provided.
         """
         self.name = name
         self.config = config or CircuitBreakerConfig()
@@ -56,27 +86,30 @@ class CircuitBreaker:
     
     @property
     def current_state(self) -> CircuitState:
-        """Estado actual del circuit breaker."""
+        """Get the current state of the circuit breaker."""
         return self._state.state
     
     def is_open(self) -> bool:
-        """Verifica si el circuito está abierto."""
+        """Check if the circuit is open (blocking calls)."""
         return self._state.state == CircuitState.OPEN
     
     def is_closed(self) -> bool:
-        """Verifica si el circuito está cerrado."""
+        """Check if the circuit is closed (allowing calls)."""
         return self._state.state == CircuitState.CLOSED
     
     async def _transition_to(self, new_state: CircuitState) -> None:
-        """Transiciona a un nuevo estado.
+        """Transition to a new circuit state.
+        
+        Handles state-specific cleanup and logging when transitioning between states.
         
         Args:
-            new_state: Nuevo estado del circuito.
+            new_state: The new circuit state to transition to.
         """
         old_state = self._state.state
         self._state.state = new_state
         self._state.last_state_change = datetime.now()
         
+        # Reset counters based on new state
         if new_state == CircuitState.CLOSED:
             self._state.failure_count = 0
             self._state.consecutive_failures = 0
@@ -90,10 +123,10 @@ class CircuitBreaker:
         )
     
     async def _should_attempt_reset(self) -> bool:
-        """Verifica si debería intentar resetear el circuito.
+        """Check if enough time has passed to attempt circuit reset.
         
         Returns:
-            True si ha pasado suficiente tiempo desde la última falla.
+            True if the recovery timeout has elapsed since the last failure.
         """
         if (self._state.last_failure_time and 
             datetime.now() - self._state.last_failure_time >= self.config.recovery_timeout):
@@ -101,7 +134,11 @@ class CircuitBreaker:
         return False
     
     async def _record_success(self) -> None:
-        """Registra una llamada exitosa."""
+        """Record a successful call.
+        
+        Updates success counters and potentially transitions the circuit
+        from HALF_OPEN to CLOSED if enough successes have occurred.
+        """
         async with self._lock:
             self._state.consecutive_failures = 0
             
@@ -111,33 +148,45 @@ class CircuitBreaker:
                     await self._transition_to(CircuitState.CLOSED)
     
     async def _record_failure(self) -> None:
-        """Registra una llamada fallida."""
+        """Record a failed call.
+        
+        Updates failure counters and potentially transitions the circuit
+        to OPEN state if failure thresholds are exceeded.
+        """
         async with self._lock:
             self._state.failure_count += 1
             self._state.consecutive_failures += 1
             self._state.last_failure_time = datetime.now()
             
+            # Check if we should open the circuit
             if self._state.state == CircuitState.CLOSED:
                 if (self._state.failure_count >= self.config.failure_threshold or
                     self._state.consecutive_failures >= self.config.max_consecutive_failures):
                     await self._transition_to(CircuitState.OPEN)
             elif self._state.state == CircuitState.HALF_OPEN:
+                # Any failure in half-open state reopens the circuit
                 await self._transition_to(CircuitState.OPEN)
     
     async def call(self, func: Callable[..., Any], *args, **kwargs) -> Any:
-        """Ejecuta una función protegida por el circuit breaker.
+        """Execute a function protected by the circuit breaker.
+        
+        This method wraps the provided function call with circuit breaker logic.
+        If the circuit is open, it will either block the call or transition to
+        half-open state if the recovery timeout has elapsed.
         
         Args:
-            func: Función a ejecutar.
-            *args: Argumentos posicionales.
-            **kwargs: Argumentos con nombre.
+            func: The async function to execute.
+            *args: Positional arguments for the function.
+            **kwargs: Keyword arguments for the function.
             
         Returns:
-            Resultado de la función.
+            The result of the function call if successful.
             
         Raises:
-            CircuitBreakerOpen: Si el circuito está abierto.
+            CircuitBreakerOpen: If the circuit is open and not ready for reset.
+            Any exception raised by the wrapped function.
         """
+        # Check circuit state before attempting call
         async with self._lock:
             if self._state.state == CircuitState.OPEN:
                 if await self._should_attempt_reset():
@@ -147,6 +196,7 @@ class CircuitBreaker:
                         f"Circuit breaker '{self.name}' is open"
                     )
         
+        # Attempt the call
         try:
             result = await func(*args, **kwargs)
             await self._record_success()
@@ -156,10 +206,19 @@ class CircuitBreaker:
             raise
     
     def get_status(self) -> Dict[str, Any]:
-        """Obtiene el estado actual del circuit breaker.
+        """Get the current status of the circuit breaker.
+        
+        Useful for monitoring and debugging circuit breaker behavior.
         
         Returns:
-            Información del estado actual.
+            Dictionary containing current state information including:
+            - name: Circuit breaker name
+            - state: Current state (closed/open/half_open)
+            - failure_count: Total failures since last reset
+            - success_count: Successes in half-open state
+            - consecutive_failures: Current consecutive failure streak
+            - last_failure_time: ISO timestamp of last failure
+            - last_state_change: ISO timestamp of last state transition
         """
         return {
             "name": self.name,
@@ -173,5 +232,9 @@ class CircuitBreaker:
 
 
 class CircuitBreakerOpen(Exception):
-    """Excepción cuando el circuit breaker está abierto."""
+    """Exception raised when the circuit breaker is open.
+    
+    This exception is raised when a call is attempted through an open circuit breaker,
+    indicating that the protected service is currently unavailable.
+    """
     pass

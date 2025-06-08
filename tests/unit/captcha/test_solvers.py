@@ -1,4 +1,4 @@
-"""Tests para los solvers de captcha."""
+"""Tests for captcha solvers."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,37 +8,37 @@ from src.captcha.solvers import AntiCaptchaSolver, CapSolverAI, TwoCaptchaSolver
 
 
 class TestCapSolverAI:
-    """Tests para CapSolverAI."""
+    """Tests for CapSolverAI."""
     
     @pytest.fixture
     def solver(self):
-        """Crea un solver de CapSolver."""
+        """Creates a CapSolver solver."""
         return CapSolverAI("test_api_key")
     
     @pytest.fixture
     def mock_page(self):
-        """Mock de una página."""
+        """Mock of a page."""
         page = MagicMock()
         page.evaluate = AsyncMock()
         page.screenshot = AsyncMock()
         return page
     
     def test_can_handle_supported_types(self, solver):
-        """Verifica que puede manejar tipos soportados."""
+        """Verifies it can handle supported types."""
         assert solver.can_handle("recaptcha_v2") is True
         assert solver.can_handle("recaptcha_v3") is True
         assert solver.can_handle("hcaptcha") is True
         assert solver.can_handle("image") is True
     
     def test_can_handle_unsupported_types(self, solver):
-        """Verifica que rechaza tipos no soportados."""
+        """Verifies it rejects unsupported types."""
         assert solver.can_handle("funcaptcha") is False
         assert solver.can_handle("geetest") is False
     
     @pytest.mark.asyncio
     async def test_solve_image_captcha(self, solver, mock_page):
-        """Test de resolución de captcha de imagen."""
-        # Mock de imagen base64
+        """Test for image captcha resolution."""
+        # Mock of base64 image
         mock_page.evaluate.return_value = "base64_image_data"
         
         captcha_info = {
@@ -54,7 +54,7 @@ class TestCapSolverAI:
     
     @pytest.mark.asyncio
     async def test_solve_image_captcha_not_found(self, solver, mock_page):
-        """Test cuando no se encuentra la imagen del captcha."""
+        """Test when captcha image is not found."""
         mock_page.evaluate.return_value = None
         
         captcha_info = {
@@ -68,7 +68,7 @@ class TestCapSolverAI:
     
     @pytest.mark.asyncio
     async def test_solve_recaptcha_v2(self, solver, mock_page):
-        """Test de resolución de ReCaptcha v2."""
+        """Test for ReCaptcha v2 resolution."""
         captcha_info = {
             "type": "recaptcha_v2",
             "site_key": "test_site_key"
@@ -81,7 +81,7 @@ class TestCapSolverAI:
     
     @pytest.mark.asyncio
     async def test_solve_recaptcha_without_site_key(self, solver, mock_page):
-        """Test de ReCaptcha sin site key."""
+        """Test for ReCaptcha without site key."""
         captcha_info = {
             "type": "recaptcha_v2"
         }
@@ -92,7 +92,7 @@ class TestCapSolverAI:
     
     @pytest.mark.asyncio
     async def test_solve_unsupported_type(self, solver, mock_page):
-        """Test con tipo de captcha no soportado."""
+        """Test with unsupported captcha type."""
         captcha_info = {
             "type": "unknown_type"
         }
@@ -103,23 +103,23 @@ class TestCapSolverAI:
 
 
 class TestTwoCaptchaSolver:
-    """Tests para TwoCaptchaSolver."""
+    """Tests for TwoCaptchaSolver."""
     
     @pytest.fixture
     def solver(self):
-        """Crea un solver de 2Captcha."""
+        """Creates a 2Captcha solver."""
         return TwoCaptchaSolver("test_api_key")
     
     @pytest.fixture
     def mock_page(self):
-        """Mock de una página."""
+        """Mock of a page."""
         page = MagicMock()
         page.evaluate = AsyncMock()
         page.screenshot = AsyncMock()
         return page
     
     def test_can_handle_supported_types(self, solver):
-        """Verifica que puede manejar tipos soportados."""
+        """Verifies it can handle supported types."""
         assert solver.can_handle("recaptcha_v2") is True
         assert solver.can_handle("recaptcha_v3") is True
         assert solver.can_handle("hcaptcha") is True
@@ -128,7 +128,7 @@ class TestTwoCaptchaSolver:
     
     @pytest.mark.asyncio
     async def test_solve_image_captcha(self, solver, mock_page):
-        """Test de resolución de captcha de imagen."""
+        """Test for image captcha resolution."""
         captcha_info = {
             "type": "image",
             "image_selector": "img.captcha"
@@ -142,7 +142,7 @@ class TestTwoCaptchaSolver:
     
     @pytest.mark.asyncio
     async def test_solve_text_captcha(self, solver, mock_page):
-        """Test de resolución de captcha de texto."""
+        """Test for text captcha resolution."""
         captcha_info = {
             "type": "text",
             "question": "What is 2+2?"
@@ -155,7 +155,7 @@ class TestTwoCaptchaSolver:
     
     @pytest.mark.asyncio
     async def test_solve_recaptcha_with_site_key(self, solver, mock_page):
-        """Test de resolución de ReCaptcha."""
+        """Test for ReCaptcha resolution."""
         mock_page.evaluate.return_value = "https://example.com"
         
         captcha_info = {
@@ -170,33 +170,33 @@ class TestTwoCaptchaSolver:
 
 
 class TestAntiCaptchaSolver:
-    """Tests para AntiCaptchaSolver."""
+    """Tests for AntiCaptchaSolver."""
     
     @pytest.fixture
     def solver(self):
-        """Crea un solver de Anti-Captcha."""
+        """Creates an Anti-Captcha solver."""
         return AntiCaptchaSolver("test_api_key")
     
     @pytest.fixture
     def mock_page(self):
-        """Mock de una página."""
+        """Mock of a page."""
         return MagicMock()
     
     def test_can_handle_supported_types(self, solver):
-        """Verifica que puede manejar tipos soportados."""
+        """Verifies it can handle supported types."""
         assert solver.can_handle("recaptcha_v2") is True
         assert solver.can_handle("recaptcha_v3") is True
         assert solver.can_handle("funcaptcha") is True
         assert solver.can_handle("image") is True
     
     def test_can_handle_unsupported_types(self, solver):
-        """Verifica que rechaza tipos no soportados."""
+        """Verifies it rejects unsupported types."""
         assert solver.can_handle("text") is False
         assert solver.can_handle("geetest") is False
     
     @pytest.mark.asyncio
     async def test_solve_image_captcha(self, solver, mock_page):
-        """Test de resolución de captcha de imagen."""
+        """Test for image captcha resolution."""
         captcha_info = {
             "type": "image"
         }
@@ -208,7 +208,7 @@ class TestAntiCaptchaSolver:
     
     @pytest.mark.asyncio
     async def test_solve_funcaptcha(self, solver, mock_page):
-        """Test de resolución de FunCaptcha."""
+        """Test for FunCaptcha resolution."""
         captcha_info = {
             "type": "funcaptcha",
             "public_key": "test_public_key"
@@ -221,7 +221,7 @@ class TestAntiCaptchaSolver:
     
     @pytest.mark.asyncio
     async def test_solve_funcaptcha_without_key(self, solver, mock_page):
-        """Test de FunCaptcha sin public key."""
+        """Test for FunCaptcha without public key."""
         captcha_info = {
             "type": "funcaptcha"
         }
@@ -232,7 +232,7 @@ class TestAntiCaptchaSolver:
     
     @pytest.mark.asyncio
     async def test_solve_recaptcha(self, solver, mock_page):
-        """Test de resolución de ReCaptcha."""
+        """Test for ReCaptcha resolution."""
         captcha_info = {
             "type": "recaptcha_v2",
             "site_key": "test_site_key"
@@ -245,7 +245,7 @@ class TestAntiCaptchaSolver:
     
     @pytest.mark.asyncio
     async def test_solve_unsupported_type(self, solver, mock_page):
-        """Test con tipo no soportado."""
+        """Test with unsupported type."""
         captcha_info = {
             "type": "unsupported"
         }

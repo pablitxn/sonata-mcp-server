@@ -1,4 +1,4 @@
-"""Tests para el Circuit Breaker."""
+"""Tests for Circuit Breaker."""
 
 import asyncio
 from datetime import timedelta
@@ -14,11 +14,11 @@ from src.captcha import (
 
 
 class TestCircuitBreaker:
-    """Tests para el Circuit Breaker."""
+    """Tests for Circuit Breaker."""
     
     @pytest.fixture
     def circuit_breaker(self):
-        """Crea un circuit breaker para tests."""
+        """Creates a circuit breaker for tests."""
         config = CircuitBreakerConfig(
             failure_threshold=3,
             recovery_timeout=timedelta(seconds=1),
@@ -29,14 +29,14 @@ class TestCircuitBreaker:
     
     @pytest.mark.asyncio
     async def test_initial_state_is_closed(self, circuit_breaker):
-        """Verifica que el estado inicial sea cerrado."""
+        """Verifies that the initial state is closed."""
         assert circuit_breaker.is_closed()
         assert not circuit_breaker.is_open()
         assert circuit_breaker.current_state == CircuitState.CLOSED
     
     @pytest.mark.asyncio
     async def test_successful_calls_keep_circuit_closed(self, circuit_breaker):
-        """Verifica que llamadas exitosas mantengan el circuito cerrado."""
+        """Verifies that successful calls keep the circuit closed."""
         async def successful_call():
             return "success"
         
@@ -48,27 +48,27 @@ class TestCircuitBreaker:
     
     @pytest.mark.asyncio
     async def test_circuit_opens_after_failure_threshold(self, circuit_breaker):
-        """Verifica que el circuito se abra después del umbral de fallas."""
+        """Verifies that the circuit opens after the failure threshold."""
         async def failing_call():
             raise Exception("Test failure")
         
-        # Primera falla
+        # First failure
         with pytest.raises(Exception):
             await circuit_breaker.call(failing_call)
         assert circuit_breaker.is_closed()
         
-        # Segunda falla - con max_consecutive_failures=2, debería abrir aquí
+        # Second failure - with max_consecutive_failures=2, should open here
         with pytest.raises(Exception):
             await circuit_breaker.call(failing_call)
-        assert circuit_breaker.is_open()  # Se abre por fallas consecutivas
+        assert circuit_breaker.is_open()  # Opens due to consecutive failures
     
     @pytest.mark.asyncio
     async def test_circuit_opens_after_consecutive_failures(self, circuit_breaker):
-        """Verifica que el circuito se abra por fallas consecutivas."""
+        """Verifies that the circuit opens due to consecutive failures."""
         async def failing_call():
             raise Exception("Test failure")
         
-        # Dos fallas consecutivas deberían abrir el circuito
+        # Two consecutive failures should open the circuit
         with pytest.raises(Exception):
             await circuit_breaker.call(failing_call)
         
@@ -79,53 +79,53 @@ class TestCircuitBreaker:
     
     @pytest.mark.asyncio
     async def test_open_circuit_rejects_calls(self, circuit_breaker):
-        """Verifica que un circuito abierto rechace llamadas."""
+        """Verifies that an open circuit rejects calls."""
         async def failing_call():
             raise Exception("Test failure")
         
-        # Abrir el circuito
+        # Open the circuit
         for _ in range(3):
             with pytest.raises(Exception):
                 await circuit_breaker.call(failing_call)
         
         assert circuit_breaker.is_open()
         
-        # Intentar llamar con circuito abierto
+        # Try to call with open circuit
         with pytest.raises(CircuitBreakerOpen):
             await circuit_breaker.call(failing_call)
     
     @pytest.mark.asyncio
     async def test_circuit_transitions_to_half_open(self, circuit_breaker):
-        """Verifica la transición a half-open después del timeout."""
+        """Verifies transition to half-open after timeout."""
         async def failing_call():
             raise Exception("Test failure")
         
         async def successful_call():
             return "success"
         
-        # Abrir el circuito
+        # Open the circuit
         for _ in range(3):
             with pytest.raises(Exception):
                 await circuit_breaker.call(failing_call)
         
-        # Esperar el recovery timeout
+        # Wait for recovery timeout
         await asyncio.sleep(1.1)
         
-        # La próxima llamada debería intentarse (half-open)
+        # The next call should be attempted (half-open)
         result = await circuit_breaker.call(successful_call)
         assert result == "success"
         assert circuit_breaker.current_state == CircuitState.HALF_OPEN
     
     @pytest.mark.asyncio
     async def test_circuit_closes_after_success_threshold(self, circuit_breaker):
-        """Verifica que el circuito se cierre después del umbral de éxitos."""
+        """Verifies that the circuit closes after the success threshold."""
         async def failing_call():
             raise Exception("Test failure")
         
         async def successful_call():
             return "success"
         
-        # Abrir el circuito
+        # Open the circuit
         for _ in range(3):
             with pytest.raises(Exception):
                 await circuit_breaker.call(failing_call)
@@ -133,7 +133,7 @@ class TestCircuitBreaker:
         # Esperar recovery timeout
         await asyncio.sleep(1.1)
         
-        # Dos llamadas exitosas deberían cerrar el circuito
+        # Two successful calls should close the circuit
         await circuit_breaker.call(successful_call)
         assert circuit_breaker.current_state == CircuitState.HALF_OPEN
         
@@ -142,14 +142,14 @@ class TestCircuitBreaker:
     
     @pytest.mark.asyncio
     async def test_half_open_returns_to_open_on_failure(self, circuit_breaker):
-        """Verifica que half-open vuelva a open en caso de falla."""
+        """Verifies that half-open returns to open on failure."""
         async def failing_call():
             raise Exception("Test failure")
         
         async def successful_call():
             return "success"
         
-        # Abrir el circuito
+        # Open the circuit
         for _ in range(3):
             with pytest.raises(Exception):
                 await circuit_breaker.call(failing_call)
@@ -157,18 +157,18 @@ class TestCircuitBreaker:
         # Esperar recovery timeout
         await asyncio.sleep(1.1)
         
-        # Éxito inicial para pasar a half-open
+        # Initial success to transition to half-open
         await circuit_breaker.call(successful_call)
         assert circuit_breaker.current_state == CircuitState.HALF_OPEN
         
-        # Falla en half-open debería volver a open
+        # Failure in half-open should return to open
         with pytest.raises(Exception):
             await circuit_breaker.call(failing_call)
         
         assert circuit_breaker.is_open()
     
     def test_get_status(self, circuit_breaker):
-        """Verifica que get_status devuelva información correcta."""
+        """Verifies that get_status returns correct information."""
         status = circuit_breaker.get_status()
         
         assert status["name"] == "test_service"

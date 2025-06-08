@@ -1,4 +1,4 @@
-"""Tests para la cadena de responsabilidad de captchas."""
+"""Tests for captcha chain of responsibility."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,7 +9,7 @@ from src.captcha.interfaces import ICaptchaSolver
 
 
 class MockCaptchaSolver(ICaptchaSolver):
-    """Mock de un solver de captcha para tests."""
+    """Mock of a captcha solver for tests."""
     
     def __init__(self, name: str, can_handle_types: list, solution: str = None):
         self.name = name
@@ -26,27 +26,27 @@ class MockCaptchaSolver(ICaptchaSolver):
 
 
 class TestCaptchaChain:
-    """Tests para la cadena de captchas."""
+    """Tests for captcha chain."""
     
     @pytest.fixture
     def mock_page(self):
-        """Mock de una página del browser."""
+        """Mock of a browser page."""
         return MagicMock()
     
     @pytest.fixture
     def captcha_chain(self):
-        """Crea una cadena de captchas vacía."""
+        """Creates an empty captcha chain."""
         return CaptchaChain()
     
     @pytest.mark.asyncio
     async def test_empty_chain_returns_none(self, captcha_chain, mock_page):
-        """Verifica que una cadena vacía devuelva None."""
+        """Verifies that an empty chain returns None."""
         result = await captcha_chain.solve(mock_page, {"type": "image"})
         assert result is None
     
     @pytest.mark.asyncio
     async def test_single_solver_success(self, captcha_chain, mock_page):
-        """Verifica que un solo solver funcione correctamente."""
+        """Verifies that a single solver works correctly."""
         solver = MockCaptchaSolver("solver1", ["image"], "SOLUTION_123")
         captcha_chain.add_solver(solver)
         
@@ -57,7 +57,7 @@ class TestCaptchaChain:
     
     @pytest.mark.asyncio
     async def test_chain_finds_correct_solver(self, captcha_chain, mock_page):
-        """Verifica que la cadena encuentre el solver correcto."""
+        """Verifies that the chain finds the correct solver."""
         solver1 = MockCaptchaSolver("solver1", ["recaptcha"], None)
         solver2 = MockCaptchaSolver("solver2", ["image"], "IMAGE_SOLUTION")
         solver3 = MockCaptchaSolver("solver3", ["hcaptcha"], None)
@@ -69,16 +69,16 @@ class TestCaptchaChain:
         result = await captcha_chain.solve(mock_page, {"type": "image"})
         
         assert result == "IMAGE_SOLUTION"
-        assert not solver1.solve_called  # No puede manejar image
+        assert not solver1.solve_called  # Cannot handle image
         assert solver2.solve_called
-        assert not solver3.solve_called  # No se alcanzó
+        assert not solver3.solve_called  # Not reached
     
     @pytest.mark.asyncio
     async def test_chain_fallback_on_failure(self, captcha_chain, mock_page):
-        """Verifica el fallback cuando un solver falla."""
-        # Primer solver puede manejar pero no resuelve
+        """Verifies fallback when a solver fails."""
+        # First solver can handle but doesn't resolve
         solver1 = MockCaptchaSolver("solver1", ["image"], None)
-        # Segundo solver resuelve exitosamente
+        # Second solver resolves successfully
         solver2 = MockCaptchaSolver("solver2", ["image"], "FALLBACK_SOLUTION")
         
         captcha_chain.add_solver(solver1)
@@ -92,12 +92,12 @@ class TestCaptchaChain:
     
     @pytest.mark.asyncio
     async def test_chain_with_exception(self, captcha_chain, mock_page):
-        """Verifica que la cadena maneje excepciones correctamente."""
-        # Solver que lanza excepción
+        """Verifies that the chain handles exceptions correctly."""
+        # Solver that throws exception
         failing_solver = MockCaptchaSolver("failing", ["image"], None)
         failing_solver.solve = AsyncMock(side_effect=Exception("Solver error"))
         
-        # Solver de respaldo
+        # Backup solver
         backup_solver = MockCaptchaSolver("backup", ["image"], "BACKUP_SOLUTION")
         
         captcha_chain.add_solver(failing_solver)
@@ -110,7 +110,7 @@ class TestCaptchaChain:
     
     @pytest.mark.asyncio
     async def test_no_solver_can_handle(self, captcha_chain, mock_page):
-        """Verifica el comportamiento cuando ningún solver puede manejar el tipo."""
+        """Verifies behavior when no solver can handle the type."""
         solver1 = MockCaptchaSolver("solver1", ["recaptcha"], None)
         solver2 = MockCaptchaSolver("solver2", ["hcaptcha"], None)
         
@@ -124,7 +124,7 @@ class TestCaptchaChain:
         assert not solver2.solve_called
     
     def test_get_status(self, captcha_chain):
-        """Verifica que get_status devuelva información de todos los circuit breakers."""
+        """Verifies that get_status returns information from all circuit breakers."""
         solver1 = MockCaptchaSolver("solver1", ["image"], None)
         solver2 = MockCaptchaSolver("solver2", ["recaptcha"], None)
         
@@ -140,16 +140,16 @@ class TestCaptchaChain:
 
 
 class TestCaptchaSolverHandler:
-    """Tests para el handler individual."""
+    """Tests for individual handler."""
     
     @pytest.fixture
     def mock_page(self):
-        """Mock de una página del browser."""
+        """Mock of a browser page."""
         return MagicMock()
     
     @pytest.mark.asyncio
     async def test_handler_passes_to_next_when_cannot_handle(self, mock_page):
-        """Verifica que el handler pase al siguiente cuando no puede manejar."""
+        """Verifies that the handler passes to the next when it cannot handle."""
         solver1 = MockCaptchaSolver("solver1", ["recaptcha"], None)
         solver2 = MockCaptchaSolver("solver2", ["image"], "IMAGE_SOLUTION")
         
@@ -165,11 +165,11 @@ class TestCaptchaSolverHandler:
     
     @pytest.mark.asyncio
     async def test_handler_circuit_breaker_open(self, mock_page):
-        """Verifica que el handler maneje circuit breaker abierto."""
+        """Verifies that the handler handles open circuit breaker."""
         solver = MockCaptchaSolver("solver", ["image"], None)
         handler = CaptchaSolverHandler(solver)
         
-        # Forzar apertura del circuit breaker
+        # Force circuit breaker to open
         handler.circuit_breaker._state.state = handler.circuit_breaker._state.state.__class__.OPEN
         
         result = await handler.handle(mock_page, {"type": "image"})

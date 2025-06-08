@@ -1,4 +1,4 @@
-"""Tests para el almacenamiento de sesiones."""
+"""Tests for session storage."""
 
 import os
 import tempfile
@@ -12,16 +12,16 @@ from src.connectors.afip.session.storage import EncryptedSessionStorage, InMemor
 
 
 class TestInMemorySessionStorage:
-    """Tests para el almacenamiento en memoria."""
+    """Tests for in-memory storage."""
     
     @pytest.fixture
     def storage(self):
-        """Crea un almacenamiento en memoria."""
+        """Creates an in-memory storage."""
         return InMemorySessionStorage()
     
     @pytest.fixture
     def sample_session(self):
-        """Crea una sesión de ejemplo."""
+        """Creates a sample session."""
         return AFIPSession(
             session_id="test_session_123",
             cuit="20-12345678-9",
@@ -33,12 +33,12 @@ class TestInMemorySessionStorage:
     
     @pytest.mark.asyncio
     async def test_save_and_load_session(self, storage, sample_session):
-        """Verifica guardar y cargar una sesión."""
-        # Guardar
+        """Verifies saving and loading a session."""
+        # Save
         result = await storage.save(sample_session)
         assert result is True
         
-        # Cargar
+        # Load
         loaded = await storage.load(sample_session.cuit)
         assert loaded is not None
         assert loaded.session_id == sample_session.session_id
@@ -47,39 +47,39 @@ class TestInMemorySessionStorage:
     
     @pytest.mark.asyncio
     async def test_load_nonexistent_session(self, storage):
-        """Verifica cargar una sesión que no existe."""
+        """Verifies loading a non-existent session."""
         loaded = await storage.load("99-99999999-9")
         assert loaded is None
     
     @pytest.mark.asyncio
     async def test_delete_session(self, storage, sample_session):
-        """Verifica eliminar una sesión."""
-        # Guardar
+        """Verifies deleting a session."""
+        # Save
         await storage.save(sample_session)
         
-        # Eliminar
+        # Delete
         result = await storage.delete(sample_session.cuit)
         assert result is True
         
-        # Verificar que no existe
+        # Verify it doesn't exist
         loaded = await storage.load(sample_session.cuit)
         assert loaded is None
     
     @pytest.mark.asyncio
     async def test_delete_nonexistent_session(self, storage):
-        """Verifica eliminar una sesión que no existe."""
+        """Verifies deleting a non-existent session."""
         result = await storage.delete("99-99999999-9")
         assert result is False
     
     @pytest.mark.asyncio
     async def test_is_valid_with_valid_session(self, storage, sample_session):
-        """Verifica validación de sesión válida."""
+        """Verifies validation of a valid session."""
         is_valid = await storage.is_valid(sample_session)
         assert is_valid is True
     
     @pytest.mark.asyncio
     async def test_is_valid_with_expired_session(self, storage):
-        """Verifica validación de sesión expirada."""
+        """Verifies validation of an expired session."""
         expired_session = AFIPSession(
             session_id="expired_123",
             cuit="20-12345678-9",
@@ -94,7 +94,7 @@ class TestInMemorySessionStorage:
     
     @pytest.mark.asyncio
     async def test_is_valid_with_invalid_session(self, storage):
-        """Verifica validación de sesión marcada como inválida."""
+        """Verifies validation of a session marked as invalid."""
         invalid_session = AFIPSession(
             session_id="invalid_123",
             cuit="20-12345678-9",
@@ -109,22 +109,22 @@ class TestInMemorySessionStorage:
 
 
 class TestEncryptedSessionStorage:
-    """Tests para el almacenamiento encriptado."""
+    """Tests for encrypted storage."""
     
     @pytest.fixture
     def temp_dir(self):
-        """Crea un directorio temporal."""
+        """Creates a temporary directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
             yield tmpdir
     
     @pytest.fixture
     def storage(self, temp_dir):
-        """Crea un almacenamiento encriptado."""
+        """Creates an encrypted storage."""
         return EncryptedSessionStorage(temp_dir)
     
     @pytest.fixture
     def sample_session(self):
-        """Crea una sesión de ejemplo."""
+        """Creates a sample session."""
         return AFIPSession(
             session_id="encrypted_session_123",
             cuit="20-12345678-9",
@@ -136,26 +136,26 @@ class TestEncryptedSessionStorage:
     
     @pytest.mark.asyncio
     async def test_save_creates_encrypted_file(self, storage, sample_session, temp_dir):
-        """Verifica que se cree un archivo encriptado."""
+        """Verifies that an encrypted file is created."""
         result = await storage.save(sample_session)
         assert result is True
         
-        # Verificar que el archivo existe
+        # Verify that the file exists
         session_path = Path(temp_dir) / "session_20123456789.enc"
         assert session_path.exists()
         
-        # Verificar que está encriptado (no contiene texto plano)
+        # Verify it's encrypted (doesn't contain plain text)
         content = session_path.read_bytes()
-        assert b"abc123" not in content  # Cookie no debe estar en texto plano
-        assert b"20-12345678-9" not in content  # CUIT no debe estar en texto plano
+        assert b"abc123" not in content  # Cookie should not be in plain text
+        assert b"20-12345678-9" not in content  # CUIT should not be in plain text
     
     @pytest.mark.asyncio
     async def test_load_decrypts_correctly(self, storage, sample_session):
-        """Verifica que la carga desencripte correctamente."""
-        # Guardar
+        """Verifies that loading decrypts correctly."""
+        # Save
         await storage.save(sample_session)
         
-        # Cargar
+        # Load
         loaded = await storage.load(sample_session.cuit)
         assert loaded is not None
         assert loaded.session_id == sample_session.session_id
@@ -164,29 +164,29 @@ class TestEncryptedSessionStorage:
     
     @pytest.mark.asyncio
     async def test_encryption_key_generation(self, temp_dir):
-        """Verifica la generación automática de clave de encriptación."""
+        """Verifies automatic encryption key generation."""
         storage = EncryptedSessionStorage(temp_dir)
         
-        # Verificar que se generó la clave
+        # Verify that the key was generated
         key_path = Path(temp_dir) / ".encryption_key"
         assert key_path.exists()
         
-        # Verificar permisos restrictivos
+        # Verify restrictive permissions
         stat_info = os.stat(key_path)
         assert stat_info.st_mode & 0o777 == 0o600
     
     @pytest.mark.asyncio
     async def test_custom_encryption_key(self, temp_dir, sample_session):
-        """Verifica el uso de clave de encriptación personalizada."""
+        """Verifies the use of a custom encryption key."""
         from cryptography.fernet import Fernet
         
-        # Generar clave personalizada
+        # Generate custom key
         custom_key = Fernet.generate_key()
         
-        # Crear storage con clave personalizada
+        # Create storage with custom key
         storage = EncryptedSessionStorage(temp_dir, custom_key)
         
-        # Guardar y cargar
+        # Save and load
         await storage.save(sample_session)
         loaded = await storage.load(sample_session.cuit)
         
@@ -195,29 +195,29 @@ class TestEncryptedSessionStorage:
     
     @pytest.mark.asyncio
     async def test_file_permissions(self, storage, sample_session, temp_dir):
-        """Verifica que los archivos tengan permisos restrictivos."""
+        """Verifies that files have restrictive permissions."""
         await storage.save(sample_session)
         
         session_path = Path(temp_dir) / "session_20123456789.enc"
         stat_info = os.stat(session_path)
         
-        # Verificar que solo el owner puede leer/escribir
+        # Verify that only the owner can read/write
         assert stat_info.st_mode & 0o777 == 0o600
     
     @pytest.mark.asyncio
     async def test_corrupted_file_handling(self, storage, temp_dir):
-        """Verifica el manejo de archivos corruptos."""
-        # Crear archivo corrupto
+        """Verifies handling of corrupted files."""
+        # Create corrupted file
         corrupted_path = Path(temp_dir) / "session_20999999999.enc"
         corrupted_path.write_bytes(b"corrupted data")
         
-        # Intentar cargar
+        # Try to load
         loaded = await storage.load("20-99999999-9")
         assert loaded is None
     
     @pytest.mark.asyncio
     async def test_expired_session_invalidation(self, storage):
-        """Verifica que las sesiones expiradas se marquen como inválidas."""
+        """Verifies that expired sessions are marked as invalid."""
         expired_session = AFIPSession(
             session_id="expired_123",
             cuit="20-88888888-8",
@@ -227,14 +227,14 @@ class TestEncryptedSessionStorage:
             is_valid=True
         )
         
-        # Guardar sesión expirada
+        # Save expired session
         await storage.save(expired_session)
         
-        # Verificar validez
+        # Verify validity
         is_valid = await storage.is_valid(expired_session)
         assert is_valid is False
         
-        # Cargar y verificar que se marcó como inválida
+        # Load and verify it was marked as invalid
         loaded = await storage.load(expired_session.cuit)
         assert loaded is not None
         assert loaded.is_valid is False

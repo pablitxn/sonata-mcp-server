@@ -1,4 +1,12 @@
-"""Interfaces para el connector de AFIP."""
+"""Interfaces for the AFIP connector.
+
+This module defines the core interfaces and data structures used by the AFIP connector.
+It provides type safety through dataclasses and enums, ensuring consistent data handling
+throughout the connector implementation.
+
+AFIP (Administración Federal de Ingresos Públicos) is Argentina's federal tax agency,
+and these interfaces facilitate automated interaction with their web services.
+"""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -8,25 +16,44 @@ from typing import Any, Dict, List, Optional
 
 
 class LoginStatus(Enum):
-    """Estado del login en AFIP."""
-    SUCCESS = "success"
-    FAILED = "failed"
-    CAPTCHA_REQUIRED = "captcha_required"
-    CERTIFICATE_REQUIRED = "certificate_required"
-    SESSION_EXPIRED = "session_expired"
+    """Login status enumeration for AFIP authentication.
+    
+    Represents the various states that can result from a login attempt,
+    helping to handle different scenarios appropriately.
+    """
+    SUCCESS = "success"  # Login completed successfully
+    FAILED = "failed"  # Login failed due to invalid credentials
+    CAPTCHA_REQUIRED = "captcha_required"  # Login requires captcha solving
+    CERTIFICATE_REQUIRED = "certificate_required"  # Digital certificate authentication needed
+    SESSION_EXPIRED = "session_expired"  # Previous session has expired
 
 
 class PaymentStatus(Enum):
-    """Estado de un pago."""
-    PENDING = "pending"
-    PAID = "paid"
-    OVERDUE = "overdue"
-    PARTIAL = "partial"
+    """Payment status enumeration.
+    
+    Represents the different states a tax payment obligation can have
+    in the AFIP system.
+    """
+    PENDING = "pending"  # Payment is due but not yet paid
+    PAID = "paid"  # Payment has been completed
+    OVERDUE = "overdue"  # Payment is past its due date
+    PARTIAL = "partial"  # Partial payment has been made
 
 
 @dataclass
 class AFIPCredentials:
-    """Credenciales para login en AFIP."""
+    """Credentials for AFIP authentication.
+    
+    Contains all necessary information for authenticating with AFIP services.
+    Supports both password-based and certificate-based authentication methods.
+    
+    Attributes:
+        cuit: Tax identification number (Clave Única de Identificación Tributaria).
+              Must be a valid 11-digit number without hyphens.
+        password: Account password for authentication.
+        certificate_path: Optional path to digital certificate file (.pfx/.p12).
+        certificate_password: Optional password for the digital certificate.
+    """
     cuit: str
     password: str
     certificate_path: Optional[str] = None
@@ -35,7 +62,19 @@ class AFIPCredentials:
 
 @dataclass
 class AFIPSession:
-    """Información de sesión de AFIP."""
+    """AFIP session information.
+    
+    Represents an active session with AFIP services. Sessions can be persisted
+    and restored to avoid repeated logins and captcha solving.
+    
+    Attributes:
+        session_id: Unique identifier for the session.
+        cuit: Tax ID associated with this session.
+        cookies: Browser cookies maintaining the session state.
+        created_at: Timestamp when the session was created.
+        expires_at: Timestamp when the session will expire.
+        is_valid: Whether the session is still valid for use.
+    """
     session_id: str
     cuit: str
     cookies: Dict[str, Any]
@@ -46,7 +85,20 @@ class AFIPSession:
 
 @dataclass
 class Payment:
-    """Información de un pago pendiente."""
+    """Tax payment obligation information.
+    
+    Represents a single tax payment obligation retrieved from AFIP,
+    containing all relevant details for identification and processing.
+    
+    Attributes:
+        id: Unique identifier for the payment obligation.
+        description: Human-readable description of the tax obligation.
+        amount: Amount due in Argentine pesos (ARS).
+        due_date: Date by which the payment must be made.
+        status: Current status of the payment.
+        tax_type: Type of tax (e.g., 'IVA', 'Ganancias', etc.).
+        period: Tax period this payment corresponds to (e.g., '2024-03').
+    """
     id: str
     description: str
     amount: float
@@ -57,108 +109,151 @@ class Payment:
 
 
 class IAFIPConnector(ABC):
-    """Interfaz principal del connector de AFIP."""
+    """Main interface for the AFIP connector.
+    
+    Defines the contract that all AFIP connector implementations must follow.
+    This interface ensures consistent behavior across different implementations
+    and facilitates testing through dependency injection.
+    """
     
     @abstractmethod
     async def login(self, credentials: AFIPCredentials) -> LoginStatus:
-        """Inicia sesión en AFIP.
+        """Authenticate with AFIP services.
+        
+        Performs login to AFIP using the provided credentials. Handles various
+        authentication scenarios including captcha challenges and certificate
+        requirements.
         
         Args:
-            credentials: Credenciales de acceso.
+            credentials: Authentication credentials containing CUIT and password.
             
         Returns:
-            Estado del login.
+            LoginStatus indicating the result of the authentication attempt.
+            
+        Raises:
+            Exception: If there's a network or browser automation error.
         """
         pass
     
     @abstractmethod
     async def logout(self) -> bool:
-        """Cierra la sesión actual.
+        """Close the current AFIP session.
+        
+        Properly logs out from AFIP services and cleans up browser resources.
+        Also invalidates any stored session data.
         
         Returns:
-            True si se cerró correctamente.
+            True if logout was successful, False otherwise.
         """
         pass
     
     @abstractmethod
     async def get_pending_payments(self) -> List[Payment]:
-        """Obtiene la lista de pagos pendientes.
+        """Retrieve list of pending tax payments.
+        
+        Fetches all outstanding tax obligations from AFIP for the authenticated
+        account. Requires an active session.
         
         Returns:
-            Lista de pagos pendientes.
+            List of Payment objects representing pending obligations.
+            
+        Raises:
+            Exception: If not logged in or if there's an error retrieving data.
         """
         pass
     
     @abstractmethod
     async def get_session(self) -> Optional[AFIPSession]:
-        """Obtiene la sesión actual.
+        """Get the current active session.
+        
+        Returns information about the current session if one exists.
         
         Returns:
-            Información de la sesión o None si no hay sesión activa.
+            AFIPSession object if logged in, None otherwise.
         """
         pass
     
     @abstractmethod
     async def restore_session(self, session: AFIPSession) -> bool:
-        """Restaura una sesión previamente guardada.
+        """Restore a previously saved session.
+        
+        Attempts to restore a session to avoid re-authentication. This is useful
+        for maintaining persistent sessions across application restarts.
         
         Args:
-            session: Sesión a restaurar.
+            session: Previously saved session information.
             
         Returns:
-            True si se restauró correctamente.
+            True if the session was successfully restored and is valid,
+            False if restoration failed or the session has expired.
         """
         pass
 
 
 
 class ISessionStorage(ABC):
-    """Interfaz para almacenamiento de sesiones."""
+    """Interface for session persistence.
+    
+    Defines the contract for storing and retrieving AFIP sessions.
+    Implementations can use different storage backends (file system,
+    database, memory, etc.) while maintaining the same interface.
+    """
     
     @abstractmethod
     async def save(self, session: AFIPSession) -> bool:
-        """Guarda una sesión.
+        """Save a session to storage.
+        
+        Persists session information for later retrieval. The implementation
+        should handle encryption and secure storage of sensitive data.
         
         Args:
-            session: Sesión a guardar.
+            session: Session information to save.
             
         Returns:
-            True si se guardó correctamente.
+            True if the session was saved successfully, False otherwise.
         """
         pass
     
     @abstractmethod
     async def load(self, cuit: str) -> Optional[AFIPSession]:
-        """Carga una sesión guardada.
+        """Load a saved session.
+        
+        Retrieves a previously saved session for the given CUIT.
         
         Args:
-            cuit: CUIT asociado a la sesión.
+            cuit: Tax ID to look up the session for.
             
         Returns:
-            Sesión guardada o None si no existe.
+            The saved session if found and valid, None otherwise.
         """
         pass
     
     @abstractmethod
     async def delete(self, cuit: str) -> bool:
-        """Elimina una sesión guardada.
+        """Delete a saved session.
+        
+        Removes a session from storage. This should be called when a session
+        is invalidated or when the user explicitly logs out.
         
         Args:
-            cuit: CUIT asociado a la sesión.
+            cuit: Tax ID associated with the session to delete.
             
         Returns:
-            True si se eliminó correctamente.
+            True if the session was deleted successfully, False if not found.
         """
         pass
     
     @abstractmethod
     async def is_valid(self, session: AFIPSession) -> bool:
-        """Verifica si una sesión es válida.
+        """Check if a session is still valid.
+        
+        Validates a session by checking its expiration time and other
+        validity criteria. This method should not make network requests.
         
         Args:
-            session: Sesión a verificar.
+            session: Session to validate.
             
         Returns:
-            True si la sesión es válida.
+            True if the session appears valid, False otherwise.
         """
         pass
