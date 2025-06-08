@@ -1,8 +1,8 @@
-"""Ejemplo de uso del connector AFIP."""
+"""Example usage of the AFIP connector."""
 
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from src.browser.factory import BrowserEngineFactory
 from src.browser.interfaces import BrowserConfig
@@ -15,157 +15,155 @@ from src.connectors.afip.session import EncryptedSessionStorage
 
 
 async def main():
-    """Ejemplo de uso del connector AFIP."""
-    
-    # Configurar el browser (usando Selenium)
+    """Example usage of the AFIP connector."""
+
+    # Configure the browser (using Selenium)
     browser_config = BrowserConfig(
-        headless=False,  # AFIP detecta headless, mejor usar con ventana
+        headless=False,  # AFIP detects headless, better to use with window
         viewport={"width": 1280, "height": 720},
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     )
-    
-    # Crear factory de browser
+
+    # Create browser factory
     browser_factory = BrowserEngineFactory()
-    
-    # Configurar almacenamiento seguro de sesiones
+
+    # Configure secure session storage
     session_storage = EncryptedSessionStorage(
         storage_path="/tmp/afip_sessions",
-        # En producción, usar una clave segura desde variables de entorno
+        # In production, use a secure key from environment variables
         encryption_key=os.getenv("AFIP_SESSION_KEY")
     )
-    
-    # Configurar cadena de captcha solvers
+
+    # Configure captcha solvers chain
     captcha_chain = CaptchaChain()
-    
-    # Configuración del circuit breaker
+
+    # Circuit breaker configuration
     cb_config = CircuitBreakerConfig(
         failure_threshold=3,
         recovery_timeout=timedelta(minutes=5),
         success_threshold=2
     )
-    
-    # Agregar solvers en orden de preferencia
+
+    # Add solvers in order of preference
     if os.getenv("CAPSOLVER_API_KEY"):
         captcha_chain.add_solver(
             CapSolverAI(os.getenv("CAPSOLVER_API_KEY")),
             cb_config
         )
-    
+
     if os.getenv("TWOCAPTCHA_API_KEY"):
         captcha_chain.add_solver(
             TwoCaptchaSolver(os.getenv("TWOCAPTCHA_API_KEY")),
             cb_config
         )
-    
-    # Crear el connector
+
+    # Create the connector
     connector = AFIPConnector(
         browser_factory=browser_factory,
         session_storage=session_storage,
         captcha_chain=captcha_chain,
         browser_config=browser_config
     )
-    
+
     try:
-        # Credenciales (en producción, obtener de forma segura)
+        # Credentials (in production, obtain securely)
         credentials = AFIPCredentials(
             cuit=os.getenv("AFIP_CUIT", "20-12345678-9"),
             password=os.getenv("AFIP_PASSWORD", "password")
         )
-        
-        print(f"Iniciando sesión en AFIP para CUIT: {credentials.cuit}")
-        
-        # Intentar login
+
+        print(f"Starting login to AFIP for CUIT: {credentials.cuit}")
+
+        # Attempt login
         login_status = await connector.login(credentials)
-        
+
         if login_status == LoginStatus.SUCCESS:
-            print("✅ Login exitoso!")
-            
-            # Obtener información de la sesión
+            print("✅ Login successful!")
+
+            # Get session info
             session = await connector.get_session()
             if session:
-                print(f"Sesión válida hasta: {session.expires_at}")
-            
-            # Consultar pagos pendientes
-            print("\nConsultando pagos pendientes...")
+                print(f"Session valid until: {session.expires_at}")
+
+            # Check pending payments
+            print("\nChecking pending payments...")
             payments = await connector.get_pending_payments()
-            
+
             if payments:
-                print(f"\n📋 Se encontraron {len(payments)} pagos pendientes:")
-                
+                print(f"\n📋 Found {len(payments)} pending payments:")
+
                 total = 0
                 for payment in payments:
                     print(f"\n- ID: {payment.id}")
-                    print(f"  Descripción: {payment.description}")
-                    print(f"  Monto: ${payment.amount:,.2f}")
-                    print(f"  Vencimiento: {payment.due_date.strftime('%d/%m/%Y')}")
-                    print(f"  Estado: {payment.status.value}")
-                    print(f"  Tipo: {payment.tax_type}")
-                    print(f"  Período: {payment.period}")
-                    
+                    print(f"  Description: {payment.description}")
+                    print(f"  Amount: ${payment.amount:,.2f}")
+                    print(f"  Due date: {payment.due_date.strftime('%d/%m/%Y')}")
+                    print(f"  Status: {payment.status.value}")
+                    print(f"  Type: {payment.tax_type}")
+                    print(f"  Period: {payment.period}")
+
                     total += payment.amount
-                
-                print(f"\n💰 Total pendiente: ${total:,.2f}")
+
+                print(f"\n💰 Total pending: ${total:,.2f}")
             else:
-                print("✨ No hay pagos pendientes!")
-            
+                print("✨ No pending payments!")
+
         elif login_status == LoginStatus.CAPTCHA_REQUIRED:
-            print("❌ No se pudo resolver el captcha automáticamente")
-            
+            print("❌ Could not automatically solve the captcha")
+
         elif login_status == LoginStatus.CERTIFICATE_REQUIRED:
-            print("🔐 Se requiere certificado digital para el login")
-            
+            print("🔐 Digital certificate required for login")
+
         else:
-            print("❌ Error en el login")
-        
+            print("❌ Login error")
+
     except Exception as e:
         print(f"❌ Error: {e}")
-        
+
     finally:
-        # Cerrar sesión y limpiar recursos
-        print("\nCerrando sesión...")
+        # Logout and clean resources
+        print("\nLogging out...")
         await connector.logout()
-        print("✅ Sesión cerrada")
+        print("✅ Session closed")
 
 
-# Ejemplo de uso con manejo de sesión existente
+# Example usage with restoring existing session
 async def example_with_session_restore():
-    """Ejemplo restaurando una sesión guardada."""
-    
+    """Example restoring a saved session."""
+
     browser_factory = BrowserEngineFactory()
     session_storage = EncryptedSessionStorage("/tmp/afip_sessions")
-    
+
     connector = AFIPConnector(
         browser_factory=browser_factory,
         session_storage=session_storage
     )
-    
+
     cuit = "20-12345678-9"
-    
-    # Intentar cargar sesión guardada
+
+    # Attempt to load saved session
     saved_session = await session_storage.load(cuit)
-    
+
     if saved_session and await session_storage.is_valid(saved_session):
-        print("📂 Sesión guardada encontrada, intentando restaurar...")
-        
+        print("📂 Saved session found, attempting to restore...")
+
         if await connector.restore_session(saved_session):
-            print("✅ Sesión restaurada exitosamente!")
-            
-            # Usar la sesión restaurada
+            print("✅ Session restored successfully!")
+
+            # Use restored session
             payments = await connector.get_pending_payments()
-            print(f"Pagos pendientes: {len(payments)}")
+            print(f"Pending payments: {len(payments)}")
         else:
-            print("❌ No se pudo restaurar la sesión")
+            print("❌ Could not restore the session")
     else:
-        print("No hay sesión válida guardada")
+        print("No valid saved session found")
 
 
 if __name__ == "__main__":
-    # Para ejecutar:
+    # To run:
     # python -m src.connectors.afip.example
-    
-    from datetime import timedelta
-    
+
     asyncio.run(main())
-    
-    # Ejemplo de restauración de sesión
+
+    # Example restoring session
     # asyncio.run(example_with_session_restore())
