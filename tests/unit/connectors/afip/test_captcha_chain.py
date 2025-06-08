@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.captcha import CaptchaChain, CaptchaSolverHandler
-from src.connectors.afip.interfaces import ICaptchaSolver
+from src.captcha import CaptchaChain, CaptchaSolverHandler, CircuitBreakerConfig
+from src.captcha.interfaces import ICaptchaSolver
 
 
 class MockCaptchaSolver(ICaptchaSolver):

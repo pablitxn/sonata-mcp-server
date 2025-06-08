@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional
 import structlog
 
 from src.browser.interfaces import IPage
-from src.connectors.afip.interfaces import ICaptchaSolver
-from src.captcha.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
+from .interfaces import ICaptchaSolver
+from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
 
 logger = structlog.get_logger()
 

@@ -394,7 +394,9 @@ class AFIPConnector(IAFIPConnector):
             for data in payments_data:
                 try:
                     # Parsear monto (remover símbolos de moneda)
-                    amount_str = data["amount"].replace("$", "").replace(".", "").replace(",", ".")
+                    # Formato argentino: $10.500,50 -> 10500.50
+                    amount_str = data["amount"].replace("$", "").replace(".", "")
+                    amount_str = amount_str.replace(",", ".")
                     amount = float(amount_str)
 
                     # Parsear fecha

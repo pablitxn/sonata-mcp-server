@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 
 from src.browser.factory import BrowserEngineFactory
 from src.browser.interfaces import BrowserConfig
@@ -23,7 +24,7 @@ from src.connectors.afip.session import InMemorySessionStorage
 class TestAFIPConnectorIntegration:
     """Tests de integración para el connector AFIP."""
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def browser_factory(self):
         """Factory de browser configurado para Selenium."""
         factory = BrowserEngineFactory()
@@ -51,7 +52,7 @@ class TestAFIPConnectorIntegration:
             viewport={"width": 1280, "height": 720}
         )
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def afip_connector(self, browser_factory, mock_captcha_chain, browser_config):
         """Crea un connector AFIP para tests."""
         storage = InMemorySessionStorage()
@@ -101,7 +102,7 @@ class TestAFIPConnectorIntegration:
         assert connector._context is None
         assert connector._page is None
     
-    @patch('connectors.afip.connector.os.getenv')
+    @patch('src.connectors.afip.connector.os.getenv')
     async def test_default_captcha_chain_creation(self, mock_getenv, browser_factory):
         """Verifica la creación de la cadena de captcha por defecto."""
         # Simular que hay API keys configuradas
@@ -235,7 +236,7 @@ class TestAFIPConnectorIntegration:
             {
                 "id": "001",
                 "description": "IVA Mensual",
-                "amount": "$10,500.50",
+                "amount": "$10.500,50",
                 "due_date": "15/01/2024",
                 "status": "Pendiente",
                 "tax_type": "IVA",
@@ -244,7 +245,7 @@ class TestAFIPConnectorIntegration:
             {
                 "id": "002",
                 "description": "Ganancias",
-                "amount": "$25,000.00",
+                "amount": "$25.000,00",
                 "due_date": "20/01/2024",
                 "status": "Vencido",
                 "tax_type": "Ganancias",
@@ -330,13 +331,13 @@ class TestAFIPConnectorIntegration:
         mock_page.fill = AsyncMock()
         mock_page.click = AsyncMock()
         
-        # Primera evaluación: sin captcha
-        # Segunda evaluación: texto contiene "certificado"
-        mock_page.evaluate = AsyncMock()
-        mock_page.evaluate.side_effect = [
-            False,  # Sin captcha
-            True    # Requiere certificado
+        # Configurar evaluaciones en orden
+        evaluate_results = [
+            False,  # has_image_captcha
+            False,  # has_recaptcha
+            True    # requires_cert
         ]
+        mock_page.evaluate = AsyncMock(side_effect=evaluate_results)
         
         # Simular falla de login
         mock_page.wait_for_selector.side_effect = [

@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 import structlog
 
 from src.browser.interfaces import IPage
-from src.connectors.afip.interfaces import ICaptchaSolver
+from .interfaces import ICaptchaSolver
 
 logger = structlog.get_logger()
 
