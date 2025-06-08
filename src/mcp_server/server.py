@@ -12,7 +12,8 @@ DEFAULT_USER_ID = "user"
 
 mcp = FastMCP(
     "mcp-mem0",
-    description="MCP server for long term memory storage and retrieval with Mem0"
+    description="MCP server for long term memory storage and retrieval with Mem0",
+    request_timeout=300  # 5 minutes timeout for long-running operations
 )
 
 

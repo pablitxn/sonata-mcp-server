@@ -25,20 +25,26 @@ def register_google_search_tool(mcp: FastMCP):
         """
         driver = None
         try:
-            # Configure Chrome options
+            # Configure Chrome options for faster execution
             chrome_options = Options()
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--disable-web-security")
+            chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            chrome_options.page_load_strategy = 'eager'  # Don't wait for all resources
             
-            # Create browser instance
+            # Create browser instance with implicit wait
             driver = webdriver.Chrome(options=chrome_options)
+            driver.implicitly_wait(5)  # Set implicit wait
             
             # Navigate to Google
             driver.get("https://www.google.com")
             
-            # Wait for search box to be present
-            search_box = WebDriverWait(driver, 10).until(
+            # Wait for search box to be present (reduced timeout)
+            search_box = WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located((By.NAME, "q"))
             )
             
@@ -48,13 +54,13 @@ def register_google_search_tool(mcp: FastMCP):
             # Submit search
             search_box.submit()
             
-            # Wait for results to load
-            WebDriverWait(driver, 10).until(
+            # Wait for results to load (reduced timeout)
+            WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located((By.ID, "search"))
             )
             
-            # Give a bit more time for all results to render
-            time.sleep(2)
+            # Give a small delay for results to render
+            time.sleep(1)
             
             # Extract results
             results = []
@@ -73,19 +79,13 @@ def register_google_search_tool(mcp: FastMCP):
             except:
                 pass
             
-            # Get search results
-            search_results = driver.find_elements(By.CSS_SELECTOR, "div.g")
+            # Get search results (limit to 3 for speed)
+            search_results = driver.find_elements(By.CSS_SELECTOR, "div.g")[:3]
             
-            for i, result in enumerate(search_results[:5]):  # Get first 5 results
+            for i, result in enumerate(search_results):
                 try:
                     title = result.find_element(By.CSS_SELECTOR, "h3").text
-                    link = result.find_element(By.CSS_SELECTOR, "a").get_attribute("href")
-                    snippet = result.find_element(By.CSS_SELECTOR, "span.aCOpRe, div.VwiC3b").text
-                    
-                    results.append(f"\nResultado {i+1}:")
-                    results.append(f"Título: {title}")
-                    results.append(f"URL: {link}")
-                    results.append(f"Descripción: {snippet}")
+                    results.append(f"\nResultado {i+1}: {title}")
                 except:
                     continue
             
