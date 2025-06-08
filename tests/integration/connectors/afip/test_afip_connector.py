@@ -1,0 +1,354 @@
+"""Tests de integración para el connector de AFIP."""
+
+import tempfile
+from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from src.browser.factory import BrowserEngineFactory
+from src.browser.interfaces import BrowserConfig
+from src.captcha import CaptchaChain
+from src.connectors.afip.connector import AFIPConnector
+from src.connectors.afip.interfaces import (
+    AFIPCredentials,
+    AFIPSession,
+    LoginStatus,
+    PaymentStatus,
+)
+from src.connectors.afip.session import InMemorySessionStorage
+
+
+@pytest.mark.asyncio
+class TestAFIPConnectorIntegration:
+    """Tests de integración para el connector AFIP."""
+    
+    @pytest.fixture
+    async def browser_factory(self):
+        """Factory de browser configurado para Selenium."""
+        factory = BrowserEngineFactory()
+        yield factory
+        # Cleanup se maneja en cada test
+    
+    @pytest.fixture
+    def temp_storage_dir(self):
+        """Directorio temporal para almacenamiento."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield tmpdir
+    
+    @pytest.fixture
+    def mock_captcha_chain(self):
+        """Mock de la cadena de captcha."""
+        chain = MagicMock(spec=CaptchaChain)
+        chain.solve = AsyncMock(return_value="MOCK_CAPTCHA_SOLUTION")
+        return chain
+    
+    @pytest.fixture
+    def browser_config(self):
+        """Configuración del browser para tests."""
+        return BrowserConfig(
+            headless=True,  # Para tests usamos headless
+            viewport={"width": 1280, "height": 720}
+        )
+    
+    @pytest.fixture
+    async def afip_connector(self, browser_factory, mock_captcha_chain, browser_config):
+        """Crea un connector AFIP para tests."""
+        storage = InMemorySessionStorage()
+        
+        connector = AFIPConnector(
+            browser_factory=browser_factory,
+            session_storage=storage,
+            captcha_chain=mock_captcha_chain,
+            browser_config=browser_config
+        )
+        
+        yield connector
+        
+        # Cleanup
+        await connector.logout()
+    
+    @pytest.fixture
+    def test_credentials(self):
+        """Credenciales de prueba."""
+        return AFIPCredentials(
+            cuit="20-12345678-9",
+            password="test_password"
+        )
+    
+    @pytest.fixture
+    def mock_afip_page(self):
+        """Mock de página HTML de AFIP."""
+        return """
+        <html>
+            <body>
+                <form>
+                    <input name="user" type="text" />
+                    <input name="password" type="password" />
+                    <button type="submit">Ingresar</button>
+                </form>
+            </body>
+        </html>
+        """
+    
+    async def test_connector_initialization(self, browser_factory):
+        """Verifica la inicialización correcta del connector."""
+        connector = AFIPConnector(browser_factory)
+        
+        assert connector.browser_factory is not None
+        assert connector.session_storage is not None
+        assert connector.captcha_chain is not None
+        assert connector._context is None
+        assert connector._page is None
+    
+    @patch('connectors.afip.connector.os.getenv')
+    async def test_default_captcha_chain_creation(self, mock_getenv, browser_factory):
+        """Verifica la creación de la cadena de captcha por defecto."""
+        # Simular que hay API keys configuradas
+        mock_getenv.side_effect = lambda key: {
+            "CAPSOLVER_API_KEY": "cap_key",
+            "TWOCAPTCHA_API_KEY": "2cap_key",
+            "ANTICAPTCHA_API_KEY": "anti_key"
+        }.get(key)
+        
+        connector = AFIPConnector(browser_factory)
+        
+        # La cadena debería tener solvers configurados
+        assert len(connector.captcha_chain._handlers) > 0
+    
+    async def test_login_with_mock_page(self, afip_connector, test_credentials):
+        """Test de login con página mockeada."""
+        # Mock del navegador
+        mock_page = MagicMock()
+        mock_context = MagicMock()
+        
+        # Configurar mocks
+        mock_page.goto = AsyncMock()
+        mock_page.wait_for_selector = AsyncMock()
+        mock_page.fill = AsyncMock()
+        mock_page.click = AsyncMock()
+        mock_page.evaluate = AsyncMock(return_value=False)  # Sin captcha
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.get_cookies = AsyncMock(return_value=[
+            {"name": "session", "value": "abc123"},
+            {"name": "token", "value": "xyz789"}
+        ])
+        
+        # Inyectar mocks
+        afip_connector._page = mock_page
+        afip_connector._context = mock_context
+        
+        # Simular login exitoso
+        mock_page.wait_for_selector.side_effect = [
+            None,  # Espera formulario
+            None   # Espera logout button (login exitoso)
+        ]
+        
+        result = await afip_connector.login(test_credentials)
+        
+        assert result == LoginStatus.SUCCESS
+        assert afip_connector._current_session is not None
+        assert afip_connector._current_session.cuit == test_credentials.cuit
+    
+    async def test_login_with_captcha(self, afip_connector, test_credentials):
+        """Test de login cuando se detecta captcha."""
+        mock_page = MagicMock()
+        mock_context = MagicMock()
+        
+        # Configurar detección de captcha
+        mock_page.evaluate = AsyncMock()
+        mock_page.evaluate.side_effect = [
+            True,   # has_image_captcha = True
+            False,  # has_recaptcha = False
+            None    # Otros evaluates
+        ]
+        
+        mock_page.goto = AsyncMock()
+        mock_page.wait_for_selector = AsyncMock()
+        mock_page.fill = AsyncMock()
+        mock_page.click = AsyncMock()
+        
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.get_cookies = AsyncMock(return_value=[])
+        
+        afip_connector._page = mock_page
+        afip_connector._context = mock_context
+        
+        # El captcha chain debería ser llamado
+        result = await afip_connector.login(test_credentials)
+        
+        afip_connector.captcha_chain.solve.assert_called_once()
+    
+    async def test_session_restoration(self, afip_connector, test_credentials):
+        """Test de restauración de sesión guardada."""
+        # Crear sesión válida
+        valid_session = AFIPSession(
+            session_id="test_session",
+            cuit=test_credentials.cuit,
+            cookies={"session": "abc123"},
+            created_at=datetime.now(),
+            expires_at=datetime.now() + timedelta(hours=1),
+            is_valid=True
+        )
+        
+        # Guardar sesión
+        await afip_connector.session_storage.save(valid_session)
+        
+        # Mock de página para verificación
+        mock_page = MagicMock()
+        mock_context = MagicMock()
+        
+        mock_page.goto = AsyncMock()
+        mock_page.evaluate = AsyncMock(return_value=True)  # Sesión válida
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.set_cookies = AsyncMock()
+        
+        # Mock del factory
+        mock_engine = MagicMock()
+        mock_engine.initialize = AsyncMock()
+        mock_engine.create_context = AsyncMock(return_value=mock_context)
+        
+        with patch.object(afip_connector.browser_factory, 'create', 
+                         AsyncMock(return_value=mock_engine)):
+            result = await afip_connector.login(test_credentials)
+        
+        assert result == LoginStatus.SUCCESS
+        mock_context.set_cookies.assert_called_once()
+    
+    async def test_get_pending_payments(self, afip_connector):
+        """Test de obtención de pagos pendientes."""
+        # Simular sesión activa
+        afip_connector._current_session = AFIPSession(
+            session_id="test",
+            cuit="20-12345678-9",
+            cookies={},
+            created_at=datetime.now(),
+            expires_at=datetime.now() + timedelta(hours=1),
+            is_valid=True
+        )
+        
+        # Mock de página con tabla de pagos
+        mock_page = MagicMock()
+        mock_page.goto = AsyncMock()
+        mock_page.wait_for_selector = AsyncMock()
+        mock_page.evaluate = AsyncMock(return_value=[
+            {
+                "id": "001",
+                "description": "IVA Mensual",
+                "amount": "$10,500.50",
+                "due_date": "15/01/2024",
+                "status": "Pendiente",
+                "tax_type": "IVA",
+                "period": "12/2023"
+            },
+            {
+                "id": "002",
+                "description": "Ganancias",
+                "amount": "$25,000.00",
+                "due_date": "20/01/2024",
+                "status": "Vencido",
+                "tax_type": "Ganancias",
+                "period": "12/2023"
+            }
+        ])
+        
+        afip_connector._page = mock_page
+        
+        payments = await afip_connector.get_pending_payments()
+        
+        assert len(payments) == 2
+        assert payments[0].id == "001"
+        assert payments[0].amount == 10500.50
+        assert payments[0].status == PaymentStatus.PENDING
+        assert payments[1].status == PaymentStatus.OVERDUE
+    
+    async def test_logout(self, afip_connector):
+        """Test de cierre de sesión."""
+        # Simular sesión activa
+        afip_connector._current_session = AFIPSession(
+            session_id="test",
+            cuit="20-12345678-9",
+            cookies={},
+            created_at=datetime.now(),
+            expires_at=datetime.now() + timedelta(hours=1),
+            is_valid=True
+        )
+        
+        # Mock de página
+        mock_page = MagicMock()
+        mock_page.click = AsyncMock()
+        mock_page.close = AsyncMock()
+        
+        mock_context = MagicMock()
+        mock_context.close = AsyncMock()
+        
+        afip_connector._page = mock_page
+        afip_connector._context = mock_context
+        
+        result = await afip_connector.logout()
+        
+        assert result is True
+        assert afip_connector._current_session is None
+        mock_page.close.assert_called_once()
+        mock_context.close.assert_called_once()
+    
+    async def test_login_failure_scenarios(self, afip_connector, test_credentials):
+        """Test de escenarios de falla en login."""
+        mock_page = MagicMock()
+        mock_context = MagicMock()
+        
+        # Configurar para falla de login
+        mock_page.goto = AsyncMock()
+        mock_page.wait_for_selector = AsyncMock()
+        mock_page.fill = AsyncMock()
+        mock_page.click = AsyncMock()
+        mock_page.evaluate = AsyncMock(return_value=False)
+        
+        # Simular timeout esperando logout button (login falló)
+        mock_page.wait_for_selector.side_effect = [
+            None,  # Formulario OK
+            Exception("Timeout")  # No aparece logout
+        ]
+        
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        
+        afip_connector._page = mock_page
+        afip_connector._context = mock_context
+        
+        result = await afip_connector.login(test_credentials)
+        
+        assert result == LoginStatus.FAILED
+        assert afip_connector._current_session is None
+    
+    async def test_certificate_required_detection(self, afip_connector, test_credentials):
+        """Test de detección de requerimiento de certificado."""
+        mock_page = MagicMock()
+        mock_context = MagicMock()
+        
+        mock_page.goto = AsyncMock()
+        mock_page.wait_for_selector = AsyncMock()
+        mock_page.fill = AsyncMock()
+        mock_page.click = AsyncMock()
+        
+        # Primera evaluación: sin captcha
+        # Segunda evaluación: texto contiene "certificado"
+        mock_page.evaluate = AsyncMock()
+        mock_page.evaluate.side_effect = [
+            False,  # Sin captcha
+            True    # Requiere certificado
+        ]
+        
+        # Simular falla de login
+        mock_page.wait_for_selector.side_effect = [
+            None,  # Formulario OK
+            Exception("Timeout")  # No aparece logout
+        ]
+        
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        
+        afip_connector._page = mock_page
+        afip_connector._context = mock_context
+        
+        result = await afip_connector.login(test_credentials)
+        
+        assert result == LoginStatus.CERTIFICATE_REQUIRED
