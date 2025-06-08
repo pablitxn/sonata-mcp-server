@@ -1,0 +1,19 @@
+[run]
+source = src
+omit = 
+    src/**/example*.py
+    src/**/debug*.py
+    src/main.py
+    src/config/logger.py
+    src/mcp_server/server.py
+    src/utils/get_mem0_client.py
+    src/mcp_server/tools/memory_tools.py
+    src/browser/protocols.py
+    
+[report]
+precision = 2
+show_missing = True
+skip_covered = False
+
+[html]
+directory = htmlcov

@@ -1,10 +1,13 @@
 """Simple test to verify Selenium is working correctly."""
 
 import asyncio
+import pytest
 from src.browser.factory import BrowserEngineFactory
 from src.browser.interfaces import BrowserConfig, BrowserType
 
 
+@pytest.mark.asyncio
+@pytest.mark.skip(reason="Manual test for debugging - requires real browser")
 async def test_selenium():
     """Test basic Selenium functionality."""
     

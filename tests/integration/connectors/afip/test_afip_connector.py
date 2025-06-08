@@ -128,7 +128,13 @@ class TestAFIPConnectorIntegration:
         mock_page.wait_for_selector = AsyncMock()
         mock_page.fill = AsyncMock()
         mock_page.click = AsyncMock()
-        mock_page.evaluate = AsyncMock(return_value=False)  # No captcha
+        # Evaluate returns different values depending on what's being evaluated
+        evaluate_returns = [
+            False,  # has_image_captcha
+            False,  # has_recaptcha
+            "https://portalcf.cloud.afip.gob.ar/portal/app/home"  # window.location.href
+        ]
+        mock_page.evaluate = AsyncMock(side_effect=evaluate_returns)
         mock_context.new_page = AsyncMock(return_value=mock_page)
         mock_context.get_cookies = AsyncMock(return_value=[
             {"name": "session", "value": "abc123"},
@@ -335,17 +341,19 @@ class TestAFIPConnectorIntegration:
         evaluate_results = [
             False,  # has_image_captcha
             False,  # has_recaptcha
-            True    # requires_cert
+            "https://auth.afip.gob.ar/contribuyente_/login.xhtml",  # window.location.href (still on login page)
+            True    # requires_cert check
         ]
         mock_page.evaluate = AsyncMock(side_effect=evaluate_results)
         
-        # Simulate login failure
+        # All selectors succeed but login fails (stays on login page)
         mock_page.wait_for_selector.side_effect = [
             None,  # Form OK
-            Exception("Timeout")  # Logout doesn't appear
+            None   # Password field OK
         ]
         
         mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.get_cookies = AsyncMock(return_value=[])
         
         afip_connector._page = mock_page
         afip_connector._context = mock_context
