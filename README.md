@@ -64,7 +64,7 @@ python -m sonata.server.py
 
 | Site | Country | Status | Features |
 |------|---------|--------|----------|
-| AFIP | 🇦🇷 Argentina | ✅ Active | Tax returns, invoicing |
+| AFIP | 🇦🇷 Argentina | 🚧 In Progress | Tax returns, invoicing |
 | ANSES | 🇦🇷 Argentina | 🚧 In Progress | Social security queries |
 | Mi Argentina | 🇦🇷 Argentina | 📋 Planned | Digital ID, certificates |
 
