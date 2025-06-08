@@ -47,6 +47,8 @@ python -m sonata.server.py
 
 ## 🏗️ Architecture
 
+Sonata implements a sophisticated multi-layered architecture designed for extensibility, security, and reliability. The system uses modern design patterns including Abstract Factory, Chain of Responsibility, and Circuit Breaker to ensure robust operation.
+
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │  LLM Agent  │────▶│ MCP Protocol│────▶│   Sonata    │
@@ -59,6 +61,15 @@ python -m sonata.server.py
               │ Connector │            │  Connector   │          │   Connector     │
               └───────────┘            └──────────────┘          └─────────────────┘
 ```
+
+### Key Components:
+- **MCP Server Layer**: FastMCP-based server with tool registration
+- **Browser Abstraction**: Dual-engine support (Playwright/Selenium)
+- **Captcha Resolution**: Chain of responsibility with circuit breakers
+- **Session Management**: Encrypted storage with Fernet encryption
+- **Connector Framework**: Interface-based design for government sites
+
+For detailed architecture documentation, see [docs/architecture.md](docs/architecture.md).
 
 ## 🔧 Supported Sites
 
