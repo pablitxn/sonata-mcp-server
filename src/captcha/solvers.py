@@ -12,12 +12,9 @@ import asyncio
 import base64
 from typing import Any, Dict, Optional
 
-import structlog
-
 from browser.interfaces import IPage
+from config.mcp_logger import logger
 from .interfaces import ICaptchaSolver
-
-logger = structlog.get_logger()
 
 
 class CapSolverAI(ICaptchaSolver):

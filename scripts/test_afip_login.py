@@ -38,8 +38,8 @@ async def test_afip_login():
     
     # Test credentials
     credentials = AFIPCredentials(
-        cuit="20390631414",
-        password="ewePYuVl8zp!J4Bvz1YEa13!Zvm&&Z9z@d6xIckf"
+        cuit="43242",
+        password="123123"
     )
     
     print(f"Testing AFIP login for CUIT: {credentials.cuit}")

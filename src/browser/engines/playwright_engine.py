@@ -3,11 +3,9 @@ Playwright implementation of browser interfaces
 """
 from typing import Dict, Any, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
-import structlog
 
+from config.mcp_logger import logger
 from ..interfaces import IBrowserEngine, IBrowserContext, IPage, BrowserConfig
-
-logger = structlog.get_logger()
 
 
 class PlaywrightPage(IPage):

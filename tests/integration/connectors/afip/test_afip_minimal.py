@@ -33,7 +33,7 @@ async def minimal_afip_login():
     
     # Enter CUIT
     print("3. Entering CUIT...")
-    cuit = os.getenv("AFIP_CUIT", "20390631414")
+    cuit = os.getenv("AFIP_CUIT", "2131231231")
     try:
         await page.wait_for_selector('input[name="F1:username"]', timeout=10000)
         await page.fill('input[name="F1:username"]', cuit)

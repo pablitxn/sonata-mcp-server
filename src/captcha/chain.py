@@ -12,13 +12,10 @@ Key features:
 
 from typing import Any, Dict, List, Optional
 
-import structlog
-
 from browser.interfaces import IPage
+from config.mcp_logger import logger
 from .interfaces import ICaptchaSolver
 from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
-
-logger = structlog.get_logger()
 
 
 class CaptchaSolverHandler:

@@ -14,12 +14,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import structlog
 from cryptography.fernet import Fernet
 
+from config.mcp_logger import logger
 from ..interfaces import AFIPSession, ISessionStorage
-
-logger = structlog.get_logger()
 
 
 class InMemorySessionStorage(ISessionStorage):

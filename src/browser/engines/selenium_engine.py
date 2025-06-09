@@ -9,11 +9,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.remote.webelement import WebElement
-import structlog
 
+from config.mcp_logger import logger
 from ..interfaces import IBrowserEngine, IBrowserContext, IPage, BrowserConfig
-
-logger = structlog.get_logger()
 
 
 class SeleniumElement:
