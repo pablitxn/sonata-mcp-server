@@ -12,8 +12,8 @@ import asyncio
 import base64
 from typing import Any, Dict, Optional
 
-from browser.interfaces import IPage
-from config.mcp_logger import logger
+from src.browser.interfaces import IPage
+from src.config.mcp_logger import logger
 from .interfaces import ICaptchaSolver
 
 

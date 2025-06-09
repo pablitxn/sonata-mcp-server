@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable, Dict, Optional
 
-from config.mcp_logger import logger
+from src.config.mcp_logger import logger
 
 
 class CircuitState(Enum):

@@ -4,7 +4,7 @@ Playwright implementation of browser interfaces
 from typing import Dict, Any, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
-from config.mcp_logger import logger
+from src.config.mcp_logger import logger
 from ...telemetry.factory import get_telemetry_provider
 from ...telemetry.interfaces import ITelemetryProvider
 from ..interfaces import IBrowserEngine, IBrowserContext, IPage, BrowserConfig

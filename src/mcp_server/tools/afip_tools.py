@@ -15,12 +15,12 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 # Now these imports should work with relative paths
-from browser.factory import BrowserEngineFactory
-from browser.interfaces import BrowserConfig, BrowserType
-from connectors.afip.connector import AFIPConnector
-from connectors.afip.interfaces import AFIPCredentials, LoginStatus
-from connectors.afip.session.storage import EncryptedSessionStorage
-from config.mcp_logger import logger
+from src.browser.factory import BrowserEngineFactory
+from src.browser.interfaces import BrowserConfig, BrowserType
+from src.connectors.afip.connector import AFIPConnector
+from src.connectors.afip.interfaces import AFIPCredentials, LoginStatus
+from src.connectors.afip.session.storage import EncryptedSessionStorage
+from src.config.mcp_logger import logger
 
 _connector_instance: Optional[Any] = None
 _browser_factory: Optional[Any] = None

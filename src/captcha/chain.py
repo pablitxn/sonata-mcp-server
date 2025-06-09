@@ -12,8 +12,8 @@ Key features:
 
 from typing import Any, Dict, List, Optional
 
-from browser.interfaces import IPage
-from config.mcp_logger import logger
+from src.browser.interfaces import IPage
+from src.config.mcp_logger import logger
 from ..telemetry.factory import get_telemetry_provider
 from ..telemetry.interfaces import ITelemetryProvider
 from .interfaces import ICaptchaSolver

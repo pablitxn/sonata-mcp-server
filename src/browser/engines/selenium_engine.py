@@ -10,7 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.remote.webelement import WebElement
 
-from config.mcp_logger import logger
+from src.config.mcp_logger import logger
 from ..interfaces import IBrowserEngine, IBrowserContext, IPage, BrowserConfig
 
 

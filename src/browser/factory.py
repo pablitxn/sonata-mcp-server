@@ -4,7 +4,7 @@ Design Pattern: Factory Method + Registry Pattern
 """
 from typing import Type, Dict
 
-from config.mcp_logger import logger
+from src.config.mcp_logger import logger
 from .interfaces import IBrowserEngine, BrowserType, BrowserConfig
 from .engines.playwright_engine import PlaywrightEngine
 from .engines.selenium_engine import SeleniumEngine
