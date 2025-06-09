@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 import structlog
 from cryptography.fernet import Fernet
 
-from src.connectors.afip.interfaces import AFIPSession, ISessionStorage
+from ..interfaces import AFIPSession, ISessionStorage
 
 logger = structlog.get_logger()
 

@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 
 import structlog
 
-from src.browser.interfaces import IPage
+from browser.interfaces import IPage
 from .interfaces import ICaptchaSolver
 
 logger = structlog.get_logger()

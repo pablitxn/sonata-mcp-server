@@ -14,11 +14,11 @@ from typing import Any, Dict, List, Optional
 import structlog
 from selenium.common.exceptions import TimeoutException
 
-from src.browser.factory import BrowserEngineFactory
-from src.browser.interfaces import BrowserConfig, IBrowserContext, IPage
-from src.captcha.chain import CaptchaChain
-from src.captcha.circuit_breaker import CircuitBreakerConfig
-from src.captcha.solvers import AntiCaptchaSolver, CapSolverAI, TwoCaptchaSolver
+from browser.factory import BrowserEngineFactory
+from browser.interfaces import BrowserConfig, IBrowserContext, IPage
+from captcha.chain import CaptchaChain
+from captcha.circuit_breaker import CircuitBreakerConfig
+from captcha.solvers import AntiCaptchaSolver, CapSolverAI, TwoCaptchaSolver
 from .interfaces import (
     AFIPCredentials,
     AFIPSession,
@@ -145,7 +145,7 @@ class AFIPConnector(IAFIPConnector):
         """
         if not self._context:
             # Use Selenium as the default engine (more stable for AFIP)
-            from src.browser.interfaces import BrowserType
+            from browser.interfaces import BrowserType
             engine = await self.browser_factory.create(
                 BrowserType.SELENIUM,
                 self.browser_config
@@ -756,7 +756,7 @@ class AFIPConnector(IAFIPConnector):
             await asyncio.sleep(3)
 
             # Debug: Save account page HTML
-            if os.getenv("AFIP_DEBUG") == "true":
+            if os.getenv("AFIP_DEBUG", "false").lower() == "true":
                 html = await account_page.content()
                 with open("/tmp/afip_account_page.html", "w") as f:
                     f.write(html)
@@ -813,6 +813,16 @@ class AFIPConnector(IAFIPConnector):
 
             await asyncio.sleep(5)
 
+            # Debug: Save HTML after calculation
+            if os.getenv("AFIP_DEBUG", "false").lower() == "true":
+                html = await account_page.content()
+                with open("/tmp/afip_account_page_after_calc.html", "w") as f:
+                    f.write(html)
+                self.logger.info("debug_html_saved_after_calc", path="/tmp/afip_account_page_after_calc.html")
+            
+            # Give extra time for JavaScript rendering
+            await asyncio.sleep(2)
+
             # ------------------------------------------------------------------
             # Step 5 – screenshot
             # ------------------------------------------------------------------
@@ -827,16 +837,54 @@ class AFIPConnector(IAFIPConnector):
             # ------------------------------------------------------------------
             # Step 6 – parse “Total Saldo Deudor”
             # ------------------------------------------------------------------
+            # Debug mode: save what we're seeing
+            if os.getenv("AFIP_DEBUG", "false").lower() == "true":
+                try:
+                    debug_text = await account_page.evaluate("document.body.innerText")
+                    with open("/tmp/afip_innertext.txt", "w") as f:
+                        f.write(str(debug_text))
+                    self.logger.info("debug_innertext_saved", path="/tmp/afip_innertext.txt")
+                except Exception as e:
+                    self.logger.warning("debug_innertext_error", error=str(e))
+            
             debt_text = await account_page.evaluate(
-                """() => {
-                     const m = document.body.innerText
-                               .match(/Total\\s+Saldo\\s+Deudor[:\\s]*([0-9.,]+)/i);
-                     return m ? m[1] : null;
-                 }"""
+                """return (() => {
+                     // Get all table cells
+                     const cells = document.getElementsByTagName('td');
+                     
+                     // Find the cell with "Total Saldo Deudor"
+                     for (let i = 0; i < cells.length; i++) {
+                         const cell = cells[i];
+                         const text = cell.textContent || cell.innerText || '';
+                         
+                         if (text.includes('Total Saldo Deudor')) {
+                             // Look at the parent row and find the table containing the value
+                             const row = cell.parentElement;
+                             if (!row) continue;
+                             
+                             // Find all nested tables in this row
+                             const tables = row.getElementsByTagName('table');
+                             
+                             // The value is typically in a small table that only contains the number
+                             for (let table of tables) {
+                                 const tableText = (table.textContent || table.innerText || '').trim();
+                                 // Check if this table contains only a number in the expected format
+                                 if (/^[0-9]{1,3}(,[0-9]{3})*\\.[0-9]{2}$/.test(tableText)) {
+                                     return tableText;
+                                 }
+                             }
+                         }
+                     }
+                     
+                     // If not found, return null
+                     return null;
+                 })()"""
             )
 
             if debt_text:
-                amount = float(debt_text.replace(".", "").replace(",", "."))
+                self.logger.info("debt_text_found", raw_text=debt_text)
+                # Handle format like 236,701.14 (comma as thousand separator, period as decimal)
+                amount = float(debt_text.replace(",", ""))
             else:
                 self.logger.warning("total_debt_not_found")
                 amount = 0.0

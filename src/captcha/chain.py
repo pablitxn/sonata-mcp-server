@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 
-from src.browser.interfaces import IPage
+from browser.interfaces import IPage
 from .interfaces import ICaptchaSolver
 from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
 

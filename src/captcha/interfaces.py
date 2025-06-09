@@ -7,7 +7,7 @@ The interface provides a consistent API for different captcha solving services.
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
-from src.browser.interfaces import IPage
+from browser.interfaces import IPage
 
 
 class ICaptchaSolver(ABC):
