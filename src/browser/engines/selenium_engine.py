@@ -8,6 +8,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.remote.webelement import WebElement
 import structlog
 
 from ..interfaces import IBrowserEngine, IBrowserContext, IPage, BrowserConfig
@@ -15,50 +16,148 @@ from ..interfaces import IBrowserEngine, IBrowserContext, IPage, BrowserConfig
 logger = structlog.get_logger()
 
 
+class SeleniumElement:
+    """Wrapper for Selenium WebElement to match Playwright-like API"""
+    
+    def __init__(self, element: WebElement):
+        self._element = element
+        
+    async def query_selector_all(self, selector: str) -> list['SeleniumElement']:
+        """Find all child elements matching the selector"""
+        loop = asyncio.get_event_loop()
+        elements = await loop.run_in_executor(
+            None,
+            self._element.find_elements,
+            By.CSS_SELECTOR,
+            selector
+        )
+        return [SeleniumElement(el) for el in elements]
+    
+    async def inner_text(self) -> str:
+        """Get the visible text of the element"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self._element.text
+        )
+    
+    async def click(self) -> None:
+        """Click the element"""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._element.click)
+
+
 class SeleniumPage(IPage):
     """Selenium page wrapper - adapts sync to async"""
 
-    def __init__(self, driver: webdriver.Chrome):
+    def __init__(self, driver: webdriver.Chrome, window_handle: Optional[str] = None):
         self._driver = driver
+        self._window_handle = window_handle
+        
+    async def _ensure_window_focus(self):
+        """Ensure this page's window is focused"""
+        if self._window_handle:
+            loop = asyncio.get_event_loop()
+            current = await loop.run_in_executor(
+                None,
+                lambda: self._driver.current_window_handle
+            )
+            if current != self._window_handle:
+                await loop.run_in_executor(
+                    None,
+                    self._driver.switch_to.window,
+                    self._window_handle
+                )
 
     async def goto(self, url: str, wait_until: str = "load") -> None:
+        await self._ensure_window_focus()
         # Run in executor to avoid blocking
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self._driver.get, url)
 
-    async def wait_for_selector(self, selector: str, timeout: int = 30000) -> None:
+    async def wait_for_selector(self, selector: str, timeout: int = 30000) -> Any:
+        await self._ensure_window_focus()
         loop = asyncio.get_event_loop()
         wait = WebDriverWait(self._driver, timeout / 1000)
-        await loop.run_in_executor(
+        element = await loop.run_in_executor(
             None,
             wait.until,
             EC.presence_of_element_located((By.CSS_SELECTOR, selector))
         )
+        return SeleniumElement(element)
 
-    async def click(self, selector: str) -> None:
+    async def click(self, selector: str, timeout: int = 30000) -> None:
+        await self._ensure_window_focus()
         loop = asyncio.get_event_loop()
-        element = self._driver.find_element(By.CSS_SELECTOR, selector)
+        
+        # Handle Playwright-style selectors
+        if ':has-text(' in selector:
+            # Convert button:has-text("text") to a Selenium-compatible approach
+            import re
+            match = re.match(r'(\w+):has-text\("([^"]+)"\)', selector)
+            if match:
+                tag, text = match.groups()
+                elements = await loop.run_in_executor(
+                    None,
+                    self._driver.find_elements,
+                    By.TAG_NAME,
+                    tag
+                )
+                for elem in elements:
+                    elem_text = await loop.run_in_executor(None, lambda: elem.text)
+                    if text in elem_text:
+                        await loop.run_in_executor(None, elem.click)
+                        return
+                raise Exception(f"Element with text '{text}' not found")
+        
+        # Standard CSS selector with timeout
+        wait = WebDriverWait(self._driver, timeout / 1000)
+        element = await loop.run_in_executor(
+            None,
+            wait.until,
+            EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+        )
         await loop.run_in_executor(None, element.click)
 
     async def fill(self, selector: str, value: str) -> None:
+        await self._ensure_window_focus()
         loop = asyncio.get_event_loop()
         element = self._driver.find_element(By.CSS_SELECTOR, selector)
         await loop.run_in_executor(None, element.clear)
         await loop.run_in_executor(None, element.send_keys, value)
 
-    async def evaluate(self, script: str) -> Any:
+    async def evaluate(self, script: str, *args) -> Any:
+        await self._ensure_window_focus()
         loop = asyncio.get_event_loop()
         # If script is just a property access, wrap it in a return statement
         if not script.strip().startswith('return') and 'function' not in script:
             script = f"return {script}"
+        
+        # Convert SeleniumElement wrappers back to WebElement
+        converted_args = []
+        for arg in args:
+            if isinstance(arg, SeleniumElement):
+                converted_args.append(arg._element)
+            else:
+                converted_args.append(arg)
+        
         return await loop.run_in_executor(
             None,
             self._driver.execute_script,
-            script
+            script,
+            *converted_args
         )
 
-    async def screenshot(self, path: Optional[str] = None) -> bytes:
+    async def screenshot(self, path: Optional[str] = None, full_page: bool = False) -> bytes:
+        await self._ensure_window_focus()
         loop = asyncio.get_event_loop()
+        
+        if full_page:
+            # Selenium doesn't have built-in full page screenshot for all browsers
+            # We'll take a regular screenshot for now
+            # TODO: Implement full page screenshot with scrolling
+            pass
+        
         if path:
             await loop.run_in_executor(
                 None,
@@ -71,6 +170,7 @@ class SeleniumPage(IPage):
         )
 
     async def content(self) -> str:
+        await self._ensure_window_focus()
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
@@ -80,6 +180,18 @@ class SeleniumPage(IPage):
     async def close(self) -> None:
         # Selenium doesn't have tab close, navigate to blank
         await self.goto("about:blank")
+    
+    async def query_selector_all(self, selector: str) -> list[SeleniumElement]:
+        """Find all elements matching the selector"""
+        await self._ensure_window_focus()
+        loop = asyncio.get_event_loop()
+        elements = await loop.run_in_executor(
+            None,
+            self._driver.find_elements,
+            By.CSS_SELECTOR,
+            selector
+        )
+        return [SeleniumElement(el) for el in elements]
 
 
 class SeleniumContext(IBrowserContext):
@@ -91,17 +203,45 @@ class SeleniumContext(IBrowserContext):
         self._driver: Optional[webdriver.Chrome] = None
 
     async def new_page(self) -> IPage:
-        # Selenium doesn't support multiple pages per context
-        # Create new driver instance
         loop = asyncio.get_event_loop()
-        options = self._engine._create_options()
-        options.add_argument(f"user-data-dir={self._profile_dir}")
+        
+        if not self._driver:
+            # Create new driver instance
+            options = self._engine._create_options()
+            options.add_argument(f"user-data-dir={self._profile_dir}")
 
-        self._driver = await loop.run_in_executor(
-            None,
-            lambda: webdriver.Chrome(options=options)
-        )
-        return SeleniumPage(self._driver)
+            self._driver = await loop.run_in_executor(
+                None,
+                lambda: webdriver.Chrome(options=options)
+            )
+            # Get the handle for the main window
+            handle = await loop.run_in_executor(
+                None,
+                lambda: self._driver.current_window_handle
+            )
+            return SeleniumPage(self._driver, handle)
+        else:
+            # Open a new tab/window
+            await loop.run_in_executor(
+                None,
+                self._driver.execute_script,
+                "window.open('about:blank', '_blank');"
+            )
+            
+            # Get all window handles and switch to the new one
+            handles = await loop.run_in_executor(
+                None,
+                lambda: self._driver.window_handles
+            )
+            new_handle = handles[-1]  # The newest window
+            
+            await loop.run_in_executor(
+                None,
+                self._driver.switch_to.window,
+                new_handle
+            )
+            
+            return SeleniumPage(self._driver, new_handle)
 
     async def close(self) -> None:
         if self._driver:
@@ -126,6 +266,26 @@ class SeleniumContext(IBrowserContext):
                 self._driver.get_cookies
             )
         return []
+    
+    async def get_pages(self) -> list[IPage]:
+        """Get all pages/tabs in the context"""
+        if not self._driver:
+            return []
+        
+        loop = asyncio.get_event_loop()
+        
+        # Get all window handles
+        window_handles = await loop.run_in_executor(
+            None,
+            lambda: self._driver.window_handles
+        )
+        
+        # Create a page wrapper for each window with its handle
+        pages = []
+        for handle in window_handles:
+            pages.append(SeleniumPage(self._driver, handle))
+        
+        return pages
 
 
 class SeleniumEngine(IBrowserEngine):

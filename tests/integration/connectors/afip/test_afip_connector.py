@@ -361,3 +361,68 @@ class TestAFIPConnectorIntegration:
         result = await afip_connector.login(test_credentials)
         
         assert result == LoginStatus.CERTIFICATE_REQUIRED
+
+    async def test_get_account_statement(self, afip_connector):
+        """Test for getting account statement."""
+        # Simulate active session
+        afip_connector._current_session = AFIPSession(
+            session_id="test",
+            cuit="20-12345678-9",
+            cookies={},
+            created_at=datetime.now(),
+            expires_at=datetime.now() + timedelta(hours=1),
+            is_valid=True
+        )
+        
+        # Mock page for main dashboard
+        mock_page = MagicMock()
+        mock_page.goto = AsyncMock()
+        mock_page.click = AsyncMock()
+        mock_page.evaluate = AsyncMock(return_value="window.location.href")
+        
+        # Mock page for account statement (new tab)
+        mock_account_page = MagicMock()
+        mock_account_page.fill = AsyncMock()
+        mock_account_page.click = AsyncMock()
+        mock_account_page.screenshot = AsyncMock()
+        mock_account_page.evaluate = AsyncMock(return_value="https://servicios2.afip.gob.ar/tramites_con_clave_fiscal/ccam/P02_ctacte.asp")
+        
+        # Mock for total debt extraction
+        def mock_evaluate_debt(*args):
+            if "Total Saldo Deudor" in str(args[0]):
+                return "15.500,75"
+            return "https://servicios2.afip.gob.ar/tramites_con_clave_fiscal/ccam/P02_ctacte.asp"
+        
+        mock_account_page.evaluate = AsyncMock(side_effect=mock_evaluate_debt)
+        
+        # Mock context to handle new page/tab
+        mock_context = MagicMock()
+        mock_context.get_pages = AsyncMock(return_value=[mock_page, mock_account_page])
+        mock_context.new_page = AsyncMock(return_value=mock_account_page)
+        
+        afip_connector._page = mock_page
+        afip_connector._context = mock_context
+        
+        statement = await afip_connector.get_account_statement()
+        
+        assert statement is not None
+        assert statement.total_debt == 15500.75
+        assert statement.period_from == "01/2025"
+        assert statement.period_to == "06/2025"
+        assert statement.calculation_date == "08/06/2025"
+        assert "/tmp/afip_screenshots/" in statement.screenshot_path
+        
+        # Verify all the steps were called
+        mock_page.goto.assert_called()
+        mock_page.click.assert_called()
+        mock_account_page.fill.assert_called()
+        mock_account_page.screenshot.assert_called()
+
+    async def test_get_account_statement_no_session(self, afip_connector):
+        """Test account statement when no session is active."""
+        # No session set
+        afip_connector._current_session = None
+        
+        statement = await afip_connector.get_account_statement()
+        
+        assert statement is None

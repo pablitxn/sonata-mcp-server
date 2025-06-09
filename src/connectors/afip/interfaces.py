@@ -108,6 +108,29 @@ class Payment:
     period: str
 
 
+@dataclass
+class AccountStatement:
+    """Account statement information from AFIP.
+    
+    Represents the account statement data including total debt amount
+    and a screenshot of the statement page.
+    
+    Attributes:
+        total_debt: Total debt amount in Argentine pesos (ARS).
+        screenshot_path: Path to the saved screenshot file.
+        period_from: Start period for the statement (MM/YYYY format).
+        period_to: End period for the statement (MM/YYYY format).
+        calculation_date: Date when the calculation was performed.
+        retrieved_at: Timestamp when the data was retrieved.
+    """
+    total_debt: float
+    screenshot_path: str
+    period_from: str
+    period_to: str
+    calculation_date: str
+    retrieved_at: datetime
+
+
 class IAFIPConnector(ABC):
     """Main interface for the AFIP connector.
     
@@ -186,6 +209,29 @@ class IAFIPConnector(ABC):
         Returns:
             True if the session was successfully restored and is valid,
             False if restoration failed or the session has expired.
+        """
+        pass
+    
+    @abstractmethod
+    async def get_account_statement(
+        self, 
+        period_from: Optional[str] = None,
+        period_to: Optional[str] = None,
+        calculation_date: Optional[str] = None
+    ) -> Optional[AccountStatement]:
+        """Get account statement with total debt amount.
+        
+        Retrieves the account statement from AFIP, takes a screenshot,
+        and extracts the total debt amount.
+        
+        Args:
+            period_from: Start period in MM/YYYY format (default: 01 of current year).
+            period_to: End period in MM/YYYY format (default: current month).
+            calculation_date: Calculation date in DD/MM/YYYY format (default: today).
+            
+        Returns:
+            AccountStatement object with debt info and screenshot path,
+            or None if retrieval failed.
         """
         pass
 

@@ -8,6 +8,7 @@ session management, captcha solving, and payment data retrieval.
 import asyncio
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -26,6 +27,7 @@ from .interfaces import (
     LoginStatus,
     Payment,
     PaymentStatus,
+    AccountStatement,
 )
 from .session import EncryptedSessionStorage
 
@@ -102,9 +104,9 @@ class AFIPConnector(IAFIPConnector):
         # Circuit breaker configuration for handling solver failures
         # More aggressive settings to quickly detect and bypass failing services
         cb_config = CircuitBreakerConfig(
-            failure_threshold=3,      # Open circuit after 3 consecutive failures
+            failure_threshold=3,  # Open circuit after 3 consecutive failures
             recovery_timeout=timedelta(minutes=5),  # Try again after 5 minutes
-            success_threshold=2       # Require 2 successes to fully close circuit
+            success_threshold=2  # Require 2 successes to fully close circuit
         )
 
         # Add solvers in order of preference based on reliability and cost
@@ -151,9 +153,9 @@ class AFIPConnector(IAFIPConnector):
 
             # Create browser context with specific settings for AFIP compatibility
             self._context = await engine.create_context({
-                "accept_downloads": False,      # Don't automatically download files
-                "bypass_csp": True,            # Bypass Content Security Policy for injection
-                "java_script_enabled": True     # JavaScript required for AFIP functionality
+                "accept_downloads": False,  # Don't automatically download files
+                "bypass_csp": True,  # Bypass Content Security Policy for injection
+                "java_script_enabled": True  # JavaScript required for AFIP functionality
             })
 
             self._page = await self._context.new_page()
@@ -304,7 +306,7 @@ class AFIPConnector(IAFIPConnector):
             # Step 3: Navigate to the AFIP login page
             self.logger.info("navigating_to_login")
             await self._page.goto(self.LOGIN_URL, wait_until="networkidle")
-            
+
             # Give the page time to fully load (AFIP can be slow)
             await asyncio.sleep(3)
 
@@ -316,13 +318,13 @@ class AFIPConnector(IAFIPConnector):
             # AFIP's CUIT field only accepts numeric input
             cuit_numeric = credentials.cuit.replace("-", "")
             await self._page.fill('input[name="F1:username"]', cuit_numeric)
-            
+
             # Click "Siguiente" (Next) to proceed
             await self._page.click('input[id="F1:btnSiguiente"]')
-            
+
             # Wait for next page/field to load
             await asyncio.sleep(2)  # Small delay for page transition
-            
+
             # Step 6: Enter password
             # Wait for password field to appear (AFIP uses F1:password)
             try:
@@ -348,10 +350,10 @@ class AFIPConnector(IAFIPConnector):
 
             # Step 9: Wait for navigation and check login result
             await asyncio.sleep(3)  # Give time for navigation
-            
+
             # Check if we've been redirected to the portal
             current_url = await self._page.evaluate("window.location.href")
-            
+
             if "portalcf.cloud.afip.gob.ar/portal/app" in current_url:
                 self.logger.info("login_successful", url=current_url)
 
@@ -415,9 +417,9 @@ class AFIPConnector(IAFIPConnector):
 
             # Try different logout selectors (AFIP uses various logout buttons)
             logout_selectors = [
-                'a[href*="logout"]',           # Logout links
-                'button[id*="logout"]',        # Logout buttons with ID
-                'a:has-text("Salir")',         # Spanish "Exit" links
+                'a[href*="logout"]',  # Logout links
+                'button[id*="logout"]',  # Logout buttons with ID
+                'a:has-text("Salir")',  # Spanish "Exit" links
                 'button:has-text("Cerrar sesión")'  # Spanish "Close session" buttons
             ]
 
@@ -513,7 +515,8 @@ class AFIPConnector(IAFIPConnector):
                 try:
                     # Parse amount from Argentine currency format
                     # Format: $10.500,50 -> 10500.50 (thousands separator is dot, decimal is comma)
-                    amount_str = data["amount"].replace("$", "").replace(".", "")  # Remove currency symbol and thousands separator
+                    amount_str = data["amount"].replace("$", "").replace(".",
+                                                                         "")  # Remove currency symbol and thousands separator
                     amount_str = amount_str.replace(",", ".")  # Replace decimal comma with dot
                     amount = float(amount_str)
 
@@ -522,10 +525,10 @@ class AFIPConnector(IAFIPConnector):
 
                     # Map Spanish status text to enum values
                     status_map = {
-                        "pendiente": PaymentStatus.PENDING,   # Pending
-                        "vencido": PaymentStatus.OVERDUE,     # Overdue
-                        "pagado": PaymentStatus.PAID,         # Paid
-                        "parcial": PaymentStatus.PARTIAL      # Partially paid
+                        "pendiente": PaymentStatus.PENDING,  # Pending
+                        "vencido": PaymentStatus.OVERDUE,  # Overdue
+                        "pagado": PaymentStatus.PAID,  # Paid
+                        "parcial": PaymentStatus.PARTIAL  # Partially paid
                     }
                     status = status_map.get(
                         data["status"].lower(),
@@ -607,7 +610,7 @@ class AFIPConnector(IAFIPConnector):
                     "name": name,
                     "value": value,
                     "domain": ".afip.gob.ar",  # AFIP domain
-                    "path": "/"                  # Root path
+                    "path": "/"  # Root path
                 }
                 for name, value in session.cookies.items()
             ]
@@ -641,3 +644,217 @@ class AFIPConnector(IAFIPConnector):
                 exc_info=True
             )
             return False
+
+    async def get_account_statement(
+            self,
+            period_from: Optional[str] = None,
+            period_to: Optional[str] = None,
+            calculation_date: Optional[str] = None,
+    ) -> Optional[AccountStatement]:
+        """
+        Fetch the “Estado de cuenta” (account statement) and return debt data
+        plus a full-page screenshot.
+
+        Flow
+        ----
+        1.  Click the *Estado de cuenta* shortcut on the AFIP dashboard
+        2.  Detect / open the tab `P02_ctacte.asp`
+        3.  Fill period & calculation-date fields
+        4.  Press **Cálculo de deuda**
+        5.  Screenshot the results
+        6.  Parse “Total Saldo Deudor”
+
+        Parameters
+        ----------
+        period_from : str  – `MM/YYYY` (default **01/2025**)
+        period_to   : str  – `MM/YYYY` (default **06/2025**)
+        calculation_date : str – `DD/MM/YYYY` (default **08/06/2025**)
+
+        Returns
+        -------
+        AccountStatement | None
+        """
+        try:
+            # ------------------------------------------------------------------
+            # Guards & defaults
+            # ------------------------------------------------------------------
+            if not self._current_session:
+                self.logger.error("no_active_session")
+                return None
+
+            period_from = period_from or "01/2025"
+            period_to = period_to or "06/2025"
+            calculation_date = calculation_date or "08/06/2025"
+
+            await self._page.goto(self.DASHBOARD_URL, wait_until="networkidle")
+            await asyncio.sleep(2)  # dashboard JS widgets finish mounting
+
+            # ------------------------------------------------------------------
+            # Step 1 – click the “Estado de cuenta” tile  (CSS-only strategy)
+            # ------------------------------------------------------------------
+            self.logger.info("clicking_estado_cuenta_button")
+
+            container_sel = "#contenidoAccesosPrincipales"
+            try:
+                container = await self._page.wait_for_selector(container_sel, timeout=5_000)
+            except Exception:
+                self.logger.error("shortcut_container_not_found")
+                return None
+
+            links = await container.query_selector_all("a.accesoPrincipal")
+
+            clicked = False
+            for link in links:
+                # inner_text collapses whitespace & gets *visible* label
+                text = (await link.inner_text()).casefold()
+                if "estado de cuenta" in text:
+                    await self._page.evaluate(
+                        "(el) => el.scrollIntoView({block:'center'})", link
+                    )
+                    await link.click()
+                    clicked = True
+                    self.logger.info("estado_cuenta_link_clicked")
+                    break
+
+            # fallback – unique dollar-icon in case label changes
+            if not clicked:
+                try:
+                    await self._page.click(f"{container_sel} i.fa-dollar", timeout=2_000)
+                    clicked = True
+                    self.logger.info("estado_cuenta_icon_clicked")
+                except Exception:
+                    pass
+
+            if not clicked:
+                self.logger.error("estado_cuenta_button_not_found")
+                return None
+
+            # ------------------------------------------------------------------
+            # Step 2 – switch to / open the P02_ctacte.asp tab
+            # ------------------------------------------------------------------
+            await asyncio.sleep(3)
+
+            pages = await self._context.get_pages()
+            self.logger.info("checking_pages", count=len(pages))
+            
+            account_page = None
+            for i, p in enumerate(pages):
+                url = await p.evaluate("location.href")
+                self.logger.info("page_url", index=i, url=url)
+                if "P02_ctacte.asp" in url:
+                    account_page = p
+                    self.logger.info("found_account_page", index=i)
+                    break
+
+            if account_page is None:
+                self.logger.warning("new_tab_not_detected_navigating_directly")
+                account_page = await self._context.new_page()
+                await account_page.goto(
+                    "https://servicios2.afip.gob.ar/tramites_con_clave_fiscal/ccam/P02_ctacte.asp"
+                )
+
+            await asyncio.sleep(3)
+
+            # Debug: Save account page HTML
+            if os.getenv("AFIP_DEBUG") == "true":
+                html = await account_page.content()
+                with open("/tmp/afip_account_page.html", "w") as f:
+                    f.write(html)
+                self.logger.info("debug_html_saved", path="/tmp/afip_account_page.html")
+
+            # ------------------------------------------------------------------
+            # Step 3 – fill period & calculation date
+            # ------------------------------------------------------------------
+            self.logger.info(
+                "setting_period_fields",
+                period_from=period_from,
+                period_to=period_to,
+                calculation_date=calculation_date,
+            )
+
+            try:
+                await account_page.fill('input[name="perdesde2"]', period_from)
+            except Exception:
+                self.logger.warning("period_from_field_not_found")
+
+            try:
+                await account_page.fill('input[name="perhasta2"]', period_to)
+            except Exception:
+                self.logger.warning("period_to_field_not_found")
+
+            try:
+                await account_page.fill('input[name="feccalculo"]', calculation_date)
+            except Exception:
+                self.logger.warning("calculation_date_field_not_found")
+
+            # ------------------------------------------------------------------
+            # Step 4 – click **Cálculo de deuda**
+            # ------------------------------------------------------------------
+            self.logger.info("clicking_calculo_deuda_button")
+
+            # The button is: <input type="button" name="CalDeud" value="CALCULO DE DEUDA">
+            calculo_selectors = [
+                'input[name="CalDeud"]',
+                'input[value="CALCULO DE DEUDA"]',
+                'input[type="button"][value*="CALCULO"]',
+            ]
+
+            for sel in calculo_selectors:
+                try:
+                    await account_page.click(sel, timeout=5_000)
+                    self.logger.info("calculo_button_clicked", selector=sel)
+                    break
+                except Exception as e:
+                    self.logger.debug("selector_failed", selector=sel, error=str(e))
+                    continue
+            else:
+                self.logger.error("calculo_deuda_button_not_found")
+                return None
+
+            await asyncio.sleep(5)
+
+            # ------------------------------------------------------------------
+            # Step 5 – screenshot
+            # ------------------------------------------------------------------
+            screenshots_dir = Path("/tmp/afip_screenshots")
+            screenshots_dir.mkdir(exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            shot_path = screenshots_dir / f"estado_cuenta_{self._current_session.cuit}_{ts}.png"
+
+            await account_page.screenshot(path=str(shot_path), full_page=True)
+            self.logger.info("screenshot_saved", path=str(shot_path))
+
+            # ------------------------------------------------------------------
+            # Step 6 – parse “Total Saldo Deudor”
+            # ------------------------------------------------------------------
+            debt_text = await account_page.evaluate(
+                """() => {
+                     const m = document.body.innerText
+                               .match(/Total\\s+Saldo\\s+Deudor[:\\s]*([0-9.,]+)/i);
+                     return m ? m[1] : null;
+                 }"""
+            )
+
+            if debt_text:
+                amount = float(debt_text.replace(".", "").replace(",", "."))
+            else:
+                self.logger.warning("total_debt_not_found")
+                amount = 0.0
+
+            stmt = AccountStatement(
+                total_debt=amount,
+                screenshot_path=str(shot_path),
+                period_from=period_from,
+                period_to=period_to,
+                calculation_date=calculation_date,
+                retrieved_at=datetime.now(),
+            )
+
+            self.logger.info(
+                "account_statement_retrieved", total_debt=amount, screenshot=str(shot_path)
+            )
+            return stmt
+
+        except Exception as exc:
+            self.logger.error("account_statement_error", error=str(exc), exc_info=True)
+            return None
