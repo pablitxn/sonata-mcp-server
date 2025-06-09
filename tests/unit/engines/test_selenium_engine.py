@@ -84,12 +84,17 @@ class TestSeleniumPage:
     async def test_click(self, selenium_page, mock_driver):
         """Test clicking element."""
         mock_element = MagicMock()
-        mock_driver.find_element.return_value = mock_element
         
-        await selenium_page.click("button#submit")
-        
-        mock_driver.find_element.assert_called_once_with("css selector", "button#submit")
-        mock_element.click.assert_called_once()
+        with patch('selenium.webdriver.support.ui.WebDriverWait') as mock_wait:
+            mock_wait_instance = MagicMock()
+            mock_wait.return_value = mock_wait_instance
+            mock_wait_instance.until.return_value = mock_element
+            
+            await selenium_page.click("button#submit")
+            
+            mock_wait.assert_called_once_with(mock_driver, 30)
+            mock_wait_instance.until.assert_called_once()
+            mock_element.click.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_fill(self, selenium_page, mock_driver):

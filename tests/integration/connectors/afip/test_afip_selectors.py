@@ -5,6 +5,7 @@ what selectors are actually present on the AFIP login page.
 """
 
 import asyncio
+import pytest
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -12,6 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 
 
+@pytest.mark.skip(reason="Requires Chrome browser - run manually for debugging")
 def test_afip_page():
     """Test AFIP login page structure with Selenium."""
     

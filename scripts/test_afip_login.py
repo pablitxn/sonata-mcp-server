@@ -4,6 +4,7 @@
 import asyncio
 import sys
 from pathlib import Path
+import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -15,6 +16,7 @@ from connectors.afip.interfaces import AFIPCredentials, LoginStatus
 from connectors.afip.session.storage import EncryptedSessionStorage
 
 
+@pytest.mark.skip(reason="Debug script - not a real test")
 async def test_afip_login():
     """Test AFIP login with real credentials."""
     # Create browser factory

@@ -2,10 +2,12 @@
 """Test JavaScript parsing directly in browser."""
 
 import asyncio
+import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
 
+@pytest.mark.skip(reason="Debug script - not a real test")
 async def test_js():
     """Test JavaScript execution directly."""
     

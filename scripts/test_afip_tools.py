@@ -4,6 +4,7 @@
 import asyncio
 import sys
 from pathlib import Path
+import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -12,6 +13,7 @@ from mcp.server.fastmcp import FastMCP
 from src.mcp_server.tools.afip_tools import register_afip_tools
 
 
+@pytest.mark.skip(reason="Debug script - not a real test")
 async def test_afip_tools():
     """Test AFIP tools registration and basic functionality."""
     # Create MCP server

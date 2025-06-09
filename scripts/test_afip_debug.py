@@ -5,6 +5,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -15,6 +16,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 
+@pytest.mark.skip(reason="Debug script - not a real test")
 async def test_parsing():
     """Test the parsing of AFIP account statement HTML."""
     

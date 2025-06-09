@@ -12,7 +12,27 @@ from src.connectors.afip.interfaces import LoginStatus, AFIPSession, AccountStat
 @pytest.fixture
 def mcp_server():
     """Create a test MCP server instance."""
-    return FastMCP("test-server")
+    # Create a mock that tracks decorated functions
+    mock_mcp = MagicMock()
+    mock_mcp._tools = {}
+    mock_mcp._resources = {}
+    
+    def mock_tool_decorator():
+        def decorator(func):
+            mock_mcp._tools[func.__name__] = func
+            return func
+        return decorator
+    
+    def mock_resource_decorator(path):
+        def decorator(func):
+            mock_mcp._resources[path] = func
+            return func
+        return decorator
+    
+    mock_mcp.tool = mock_tool_decorator
+    mock_mcp.resource = mock_resource_decorator
+    
+    return mock_mcp
 
 
 @pytest.fixture
@@ -81,7 +101,7 @@ class TestAFIPTools:
         register_afip_tools(mcp_server)
         
         # Check that all tools are registered
-        tool_names = [tool.name for tool in mcp_server._tools.values()]
+        tool_names = list(mcp_server._tools.keys())
         assert "afip_login" in tool_names
         assert "afip_logout" in tool_names
         assert "afip_get_account_statement" in tool_names
@@ -98,10 +118,10 @@ class TestAFIPTools:
             mock_connector.get_session.return_value = sample_session
             
             # Get the tool function
-            login_tool = next(tool for tool in mcp_server._tools.values() if tool.name == "afip_login")
+            login_tool = mcp_server._tools["afip_login"]
             
             # Call the tool
-            result = await login_tool.fn(cuit="20-12345678-9", password="test123")
+            result = await login_tool(cuit="20-12345678-9", password="test123")
             
             assert result["success"] is True
             assert result["status"] == "success"
@@ -116,8 +136,8 @@ class TestAFIPTools:
         with patch('src.mcp_server.tools.afip_tools._get_connector', return_value=mock_connector):
             mock_connector.login.return_value = LoginStatus.FAILED
             
-            login_tool = next(tool for tool in mcp_server._tools.values() if tool.name == "afip_login")
-            result = await login_tool.fn(cuit="20-12345678-9", password="wrong")
+            login_tool = mcp_server._tools["afip_login"]
+            result = await login_tool(cuit="20-12345678-9", password="wrong")
             
             assert result["success"] is False
             assert result["status"] == "failed"
@@ -131,8 +151,8 @@ class TestAFIPTools:
         with patch('src.mcp_server.tools.afip_tools._get_connector', return_value=mock_connector):
             mock_connector.logout.return_value = True
             
-            logout_tool = next(tool for tool in mcp_server._tools.values() if tool.name == "afip_logout")
-            result = await logout_tool.fn()
+            logout_tool = mcp_server._tools["afip_logout"]
+            result = await logout_tool()
             
             assert result["success"] is True
             assert "Logout successful" in result["message"]
@@ -146,8 +166,8 @@ class TestAFIPTools:
             mock_connector.get_session.return_value = sample_session
             mock_connector.get_account_statement.return_value = sample_account_statement
             
-            statement_tool = next(tool for tool in mcp_server._tools.values() if tool.name == "afip_get_account_statement")
-            result = await statement_tool.fn(period_from="01/2025", period_to="06/2025")
+            statement_tool = mcp_server._tools["afip_get_account_statement"]
+            result = await statement_tool(period_from="01/2025", period_to="06/2025")
             
             assert result["success"] is True
             assert result["total_debt"] == 15000.50
@@ -162,8 +182,8 @@ class TestAFIPTools:
         with patch('src.mcp_server.tools.afip_tools._get_connector', return_value=mock_connector):
             mock_connector.get_session.return_value = None
             
-            statement_tool = next(tool for tool in mcp_server._tools.values() if tool.name == "afip_get_account_statement")
-            result = await statement_tool.fn()
+            statement_tool = mcp_server._tools["afip_get_account_statement"]
+            result = await statement_tool()
             
             assert result["success"] is False
             assert "No active session" in result["message"]
@@ -177,8 +197,8 @@ class TestAFIPTools:
             mock_connector.get_session.return_value = sample_session
             mock_connector.get_pending_payments.return_value = sample_payments
             
-            payments_tool = next(tool for tool in mcp_server._tools.values() if tool.name == "afip_get_pending_payments")
-            result = await payments_tool.fn()
+            payments_tool = mcp_server._tools["afip_get_pending_payments"]
+            result = await payments_tool()
             
             assert result["success"] is True
             assert result["count"] == 2
@@ -195,8 +215,8 @@ class TestAFIPTools:
         with patch('src.mcp_server.tools.afip_tools._get_connector', return_value=mock_connector):
             mock_connector.get_session.return_value = sample_session
             
-            status_tool = next(tool for tool in mcp_server._tools.values() if tool.name == "afip_get_session_status")
-            result = await status_tool.fn()
+            status_tool = mcp_server._tools["afip_get_session_status"]
+            result = await status_tool()
             
             assert result["success"] is True
             assert result["has_session"] is True
@@ -211,8 +231,8 @@ class TestAFIPTools:
         with patch('src.mcp_server.tools.afip_tools._get_connector', return_value=mock_connector):
             mock_connector.get_session.return_value = None
             
-            status_tool = next(tool for tool in mcp_server._tools.values() if tool.name == "afip_get_session_status")
-            result = await status_tool.fn()
+            status_tool = mcp_server._tools["afip_get_session_status"]
+            result = await status_tool()
             
             assert result["success"] is True
             assert result["has_session"] is False
@@ -226,8 +246,8 @@ class TestAFIPTools:
         with patch('src.mcp_server.tools.afip_tools._get_connector', return_value=mock_connector):
             mock_connector.login.side_effect = Exception("Connection error")
             
-            login_tool = next(tool for tool in mcp_server._tools.values() if tool.name == "afip_login")
-            result = await login_tool.fn(cuit="20-12345678-9", password="test123")
+            login_tool = mcp_server._tools["afip_login"]
+            result = await login_tool(cuit="20-12345678-9", password="test123")
             
             assert result["success"] is False
             assert "error" in result["status"]
