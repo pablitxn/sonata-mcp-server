@@ -19,6 +19,8 @@ from captcha.chain import CaptchaChain
 from captcha.circuit_breaker import CircuitBreakerConfig
 from captcha.solvers import AntiCaptchaSolver, CapSolverAI, TwoCaptchaSolver
 from config.mcp_logger import logger
+from ...telemetry.factory import get_telemetry_provider
+from ...telemetry.interfaces import ITelemetryProvider
 from .interfaces import (
     AFIPCredentials,
     AFIPSession,
@@ -45,6 +47,8 @@ class AFIPConnector(IAFIPConnector):
     The connector uses browser automation to interact with AFIP's web interface,
     handling common challenges like captchas and session timeouts.
     """
+    
+    _telemetry: ITelemetryProvider = get_telemetry_provider()
 
     # AFIP web application URLs
     LOGIN_URL = "https://auth.afip.gob.ar/contribuyente_/login.xhtml"  # Main login page
@@ -316,149 +320,176 @@ class AFIPConnector(IAFIPConnector):
             LoginStatus: The result of the login attempt (SUCCESS, FAILED, 
                         CAPTCHA_REQUIRED, CERTIFICATE_REQUIRED, etc.).
         """
-        try:
-            # Step 1: Try to restore a previously saved session
-            # This avoids unnecessary logins and reduces captcha encounters
-            self.logger.info("connector.login: starting login process", cuit=credentials.cuit)
+        # Start telemetry trace for login operation
+        with self._telemetry.trace("afip_login") as trace:
+            trace.add_metadata({
+                "cuit": credentials.cuit[:2] + "***" + credentials.cuit[-2:],  # Masked CUIT
+                "attempt_session_restore": bool(self.session_storage)
+            })
             
-            if self.session_storage:
-                self.logger.info("connector.login: checking for saved session")
-                saved_session = await self.session_storage.load(credentials.cuit)
-                if saved_session and await self.session_storage.is_valid(saved_session):
-                    self.logger.info("connector.login: found valid saved session, attempting restore")
-                    if await self.restore_session(saved_session):
-                        self.logger.info("connector.login: session restored successfully", cuit=credentials.cuit)
-                        return LoginStatus.SUCCESS
-                    else:
-                        self.logger.warning("connector.login: session restore failed, proceeding with fresh login")
-
-            # Step 2: Initialize browser if session restoration failed
-            await self._initialize_browser()
-
-            # Step 3: Navigate to the AFIP login page
-            self.logger.info("connector.login: navigating to login page", url=self.LOGIN_URL)
-            await self._page.goto(self.LOGIN_URL, wait_until="networkidle")
-            self.logger.info("connector.login: login page loaded")
-
-            # Give the page time to fully load (AFIP can be slow)
-            await asyncio.sleep(3)
-
-            # Step 4: Wait for the login form to load
-            # AFIP uses JSF (JavaServer Faces) which generates IDs like F1:username
-            self.logger.info("connector.login: waiting for username field")
-            await self._page.wait_for_selector('input[name="F1:username"]', timeout=20000)
-            self.logger.info("connector.login: username field found")
-
-            # Step 5: Enter CUIT (numeric only - remove any hyphens if present)
-            # AFIP's CUIT field only accepts numeric input
-            cuit_numeric = credentials.cuit.replace("-", "")
-            self.logger.info("connector.login: filling username field", 
-                           cuit_length=len(cuit_numeric),
-                           cuit_masked=f"{cuit_numeric[:2]}...{cuit_numeric[-2:]}")
-            await self._page.fill('input[name="F1:username"]', cuit_numeric)
-
-            # Click "Siguiente" (Next) to proceed
-            self.logger.info("connector.login: clicking next button")
-            await self._page.click('input[id="F1:btnSiguiente"]')
-
-            # Wait for next page/field to load
-            await asyncio.sleep(2)  # Small delay for page transition
-
-            # Step 6: Enter password
-            # Wait for password field to appear (AFIP uses F1:password)
             try:
-                self.logger.info("connector.login: waiting for password field")
-                await self._page.wait_for_selector('input[name="F1:password"]', timeout=10000)
-                self.logger.info("connector.login: password field found, filling credentials")
-                await self._page.fill('input[name="F1:password"]', credentials.password)
-                self.logger.info("connector.login: password filled")
-            except TimeoutException:
-                self.logger.error("connector.login: password field not found - timeout",
-                                current_url=await self._page.evaluate("window.location.href"))
-                return LoginStatus.FAILED
-
-            # Step 7: Check for and handle captcha challenges
-            self.logger.info("connector.login: checking for captcha")
-            captcha_info = await self._detect_captcha(self._page)
-            if captcha_info:
-                self.logger.info("connector.login: captcha detected", type=captcha_info["type"])
-
-                # Attempt to solve the captcha automatically
-                if not await self._solve_captcha(self._page, captcha_info):
-                    # Return failure if captcha couldn't be solved
-                    self.logger.error("connector.login: captcha could not be solved")
-                    return LoginStatus.CAPTCHA_REQUIRED
-            else:
-                self.logger.info("connector.login: no captcha detected")
-
-            # Step 8: Submit the login form
-            # AFIP uses "Ingresar" button with ID F1:btnIngresar
-            self.logger.info("connector.login: clicking login button")
-            await self._page.click('input[id="F1:btnIngresar"]')
-            self.logger.info("connector.login: login form submitted")
-
-            # Step 9: Wait for navigation and check login result
-            self.logger.info("connector.login: waiting for navigation after login")
-            await asyncio.sleep(3)  # Give time for navigation
-
-            # Check if we've been redirected to the portal
-            current_url = await self._page.evaluate("window.location.href")
-            self.logger.info("connector.login: checking login result", current_url=current_url)
-
-            if "portalcf.cloud.afip.gob.ar/portal/app" in current_url:
-                self.logger.info("connector.login: login successful, redirected to portal", url=current_url)
-
-                # Step 10: Login successful - save the session for future use
-                # Extract all cookies from the browser context
-                cookies = await self._context.get_cookies()
-
-                # Create a new session object with the authentication data
-                self._current_session = AFIPSession(
-                    session_id=f"afip_{credentials.cuit}_{datetime.now().timestamp()}",
-                    cuit=credentials.cuit,
-                    cookies={c["name"]: c["value"] for c in cookies},  # Convert to dict format
-                    created_at=datetime.now(),
-                    expires_at=datetime.now() + timedelta(hours=2),  # AFIP sessions typically last 2 hours
-                    is_valid=True
-                )
-
-                # Persist the session for future use
+                # Step 1: Try to restore a previously saved session
+                # This avoids unnecessary logins and reduces captcha encounters
+                self.logger.info("connector.login: starting login process", cuit=credentials.cuit)
+                
                 if self.session_storage:
-                    self.logger.info("connector.login: saving session for future use")
-                    await self.session_storage.save(self._current_session)
+                    with trace.span("session_restore") as span:
+                        self.logger.info("connector.login: checking for saved session")
+                        saved_session = await self.session_storage.load(credentials.cuit)
+                        if saved_session and await self.session_storage.is_valid(saved_session):
+                            self.logger.info("connector.login: found valid saved session, attempting restore")
+                            if await self.restore_session(saved_session):
+                                self.logger.info("connector.login: session restored successfully", cuit=credentials.cuit)
+                                span.add_metadata({"restored": True})
+                                trace.add_metadata({"login_method": "session_restore"})
+                                return LoginStatus.SUCCESS
+                            else:
+                                self.logger.warning("connector.login: session restore failed, proceeding with fresh login")
+                                span.add_metadata({"restored": False})
 
-                self.logger.info("connector.login: login completed successfully", 
-                               cuit=credentials.cuit,
-                               session_id=self._current_session.session_id)
-                return LoginStatus.SUCCESS
-            else:
-                # Step 11: Login failed - determine the reason
-                # Check if the failure is due to certificate requirement
-                requires_cert = await self._page.evaluate("""
-                    () => {
-                        const text = document.body.innerText.toLowerCase();
-                        return text.includes('certificado') || text.includes('certificate');
-                    }
-                """)
+                # Step 2: Initialize browser if session restoration failed
+                await self._initialize_browser()
 
-                if requires_cert:
-                    # Some AFIP services require digital certificates
-                    self.logger.warning("connector.login: certificate required for this service")
-                    return LoginStatus.CERTIFICATE_REQUIRED
+                # Step 3: Navigate to the AFIP login page
+                self.logger.info("connector.login: navigating to login page", url=self.LOGIN_URL)
+                await self._page.goto(self.LOGIN_URL, wait_until="networkidle")
+                self.logger.info("connector.login: login page loaded")
 
-                # Generic login failure
-                self.logger.error("connector.login: login failed - not redirected to portal", 
-                                current_url=current_url,
-                                page_title=await self._page.title())
+                # Give the page time to fully load (AFIP can be slow)
+                await asyncio.sleep(3)
+
+                # Step 4: Wait for the login form to load
+                # AFIP uses JSF (JavaServer Faces) which generates IDs like F1:username
+                self.logger.info("connector.login: waiting for username field")
+                await self._page.wait_for_selector('input[name="F1:username"]', timeout=20000)
+                self.logger.info("connector.login: username field found")
+
+                # Step 5: Enter CUIT (numeric only - remove any hyphens if present)
+                # AFIP's CUIT field only accepts numeric input
+                cuit_numeric = credentials.cuit.replace("-", "")
+                self.logger.info("connector.login: filling username field", 
+                               cuit_length=len(cuit_numeric),
+                               cuit_masked=f"{cuit_numeric[:2]}...{cuit_numeric[-2:]}")
+                await self._page.fill('input[name="F1:username"]', cuit_numeric)
+
+                # Click "Siguiente" (Next) to proceed
+                self.logger.info("connector.login: clicking next button")
+                await self._page.click('input[id="F1:btnSiguiente"]')
+
+                # Wait for next page/field to load
+                await asyncio.sleep(2)  # Small delay for page transition
+
+                # Step 6: Enter password
+                # Wait for password field to appear (AFIP uses F1:password)
+                try:
+                    self.logger.info("connector.login: waiting for password field")
+                    await self._page.wait_for_selector('input[name="F1:password"]', timeout=10000)
+                    self.logger.info("connector.login: password field found, filling credentials")
+                    await self._page.fill('input[name="F1:password"]', credentials.password)
+                    self.logger.info("connector.login: password filled")
+                except TimeoutException:
+                    self.logger.error("connector.login: password field not found - timeout",
+                                    current_url=await self._page.evaluate("window.location.href"))
+                    return LoginStatus.FAILED
+
+                # Step 7: Check for and handle captcha challenges
+                with trace.span("captcha_handling") as captcha_span:
+                    self.logger.info("connector.login: checking for captcha")
+                    captcha_info = await self._detect_captcha(self._page)
+                    if captcha_info:
+                        self.logger.info("connector.login: captcha detected", type=captcha_info["type"])
+                        captcha_span.add_metadata({"captcha_type": captcha_info["type"]})
+
+                        # Attempt to solve the captcha automatically
+                        if not await self._solve_captcha(self._page, captcha_info):
+                            # Return failure if captcha couldn't be solved
+                            self.logger.error("connector.login: captcha could not be solved")
+                            captcha_span.add_metadata({"solved": False})
+                            trace.add_metadata({"failure_reason": "captcha_not_solved"})
+                            return LoginStatus.CAPTCHA_REQUIRED
+                        captcha_span.add_metadata({"solved": True})
+                    else:
+                        self.logger.info("connector.login: no captcha detected")
+                        captcha_span.add_metadata({"captcha_present": False})
+
+                # Step 8: Submit the login form
+                # AFIP uses "Ingresar" button with ID F1:btnIngresar
+                self.logger.info("connector.login: clicking login button")
+                await self._page.click('input[id="F1:btnIngresar"]')
+                self.logger.info("connector.login: login form submitted")
+
+                # Step 9: Wait for navigation and check login result
+                self.logger.info("connector.login: waiting for navigation after login")
+                await asyncio.sleep(3)  # Give time for navigation
+
+                # Check if we've been redirected to the portal
+                current_url = await self._page.evaluate("window.location.href")
+                self.logger.info("connector.login: checking login result", current_url=current_url)
+
+                if "portalcf.cloud.afip.gob.ar/portal/app" in current_url:
+                    self.logger.info("connector.login: login successful, redirected to portal", url=current_url)
+
+                    # Step 10: Login successful - save the session for future use
+                    # Extract all cookies from the browser context
+                    cookies = await self._context.get_cookies()
+
+                    # Create a new session object with the authentication data
+                    self._current_session = AFIPSession(
+                        session_id=f"afip_{credentials.cuit}_{datetime.now().timestamp()}",
+                        cuit=credentials.cuit,
+                        cookies={c["name"]: c["value"] for c in cookies},  # Convert to dict format
+                        created_at=datetime.now(),
+                        expires_at=datetime.now() + timedelta(hours=2),  # AFIP sessions typically last 2 hours
+                        is_valid=True
+                    )
+
+                    # Persist the session for future use
+                    if self.session_storage:
+                        self.logger.info("connector.login: saving session for future use")
+                        await self.session_storage.save(self._current_session)
+
+                    self.logger.info("connector.login: login completed successfully", 
+                                   cuit=credentials.cuit,
+                                   session_id=self._current_session.session_id)
+                    trace.add_metadata({
+                        "login_method": "fresh_login",
+                        "success": True,
+                        "session_saved": bool(self.session_storage)
+                    })
+                    return LoginStatus.SUCCESS
+                else:
+                    # Step 11: Login failed - determine the reason
+                    # Check if the failure is due to certificate requirement
+                    requires_cert = await self._page.evaluate("""
+                        () => {
+                            const text = document.body.innerText.toLowerCase();
+                            return text.includes('certificado') || text.includes('certificate');
+                        }
+                    """)
+
+                    if requires_cert:
+                        # Some AFIP services require digital certificates
+                        self.logger.warning("connector.login: certificate required for this service")
+                        return LoginStatus.CERTIFICATE_REQUIRED
+
+                    # Generic login failure
+                    self.logger.error("connector.login: login failed - not redirected to portal", 
+                                    current_url=current_url,
+                                    page_title=await self._page.title())
+                    return LoginStatus.FAILED
+
+            except Exception as e:
+                # Log any unexpected errors during login
+                self.logger.error("connector.login: unexpected error during login", 
+                                error=str(e), 
+                                error_type=type(e).__name__,
+                                exc_info=True)
+                trace.add_metadata({
+                    "success": False,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
                 return LoginStatus.FAILED
-
-        except Exception as e:
-            # Log any unexpected errors during login
-            self.logger.error("connector.login: unexpected error during login", 
-                            error=str(e), 
-                            error_type=type(e).__name__,
-                            exc_info=True)
-            return LoginStatus.FAILED
 
     async def logout(self) -> bool:
         """Logout from the current AFIP session.

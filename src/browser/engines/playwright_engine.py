@@ -5,29 +5,34 @@ from typing import Dict, Any, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 from config.mcp_logger import logger
+from ...telemetry.factory import get_telemetry_provider
+from ...telemetry.interfaces import ITelemetryProvider
 from ..interfaces import IBrowserEngine, IBrowserContext, IPage, BrowserConfig
 
 
 class PlaywrightPage(IPage):
     """Playwright page wrapper"""
+    
+    _telemetry: ITelemetryProvider = get_telemetry_provider()
 
     def __init__(self, page: Page):
         self._page = page
         self.logger = logger.bind(component="playwright_page")
 
     async def goto(self, url: str, wait_until: str = "load") -> None:
-        self.logger.info("playwright_page.goto: navigating to URL", url=url, wait_until=wait_until)
-        try:
-            await self._page.goto(url, wait_until=wait_until)
-            self.logger.info("playwright_page.goto: navigation complete",
-                           current_url=self._page.url,
-                           title=await self._page.title())
-        except Exception as e:
-            self.logger.error("playwright_page.goto: navigation failed",
-                            url=url,
-                            error=str(e),
-                            error_type=type(e).__name__)
-            raise
+        with self._telemetry.timed_operation("browser_navigation", {"url": url, "wait_until": wait_until}):
+            self.logger.info("playwright_page.goto: navigating to URL", url=url, wait_until=wait_until)
+            try:
+                await self._page.goto(url, wait_until=wait_until)
+                self.logger.info("playwright_page.goto: navigation complete",
+                               current_url=self._page.url,
+                               title=await self._page.title())
+            except Exception as e:
+                self.logger.error("playwright_page.goto: navigation failed",
+                                url=url,
+                                error=str(e),
+                                error_type=type(e).__name__)
+                raise
 
     async def wait_for_selector(self, selector: str, timeout: int = 30000) -> None:
         self.logger.info("playwright_page.wait_for_selector: waiting for selector",
@@ -43,16 +48,17 @@ class PlaywrightPage(IPage):
             raise
 
     async def click(self, selector: str) -> None:
-        self.logger.info("playwright_page.click: clicking element", selector=selector)
-        try:
-            await self._page.click(selector)
-            self.logger.info("playwright_page.click: element clicked successfully", selector=selector)
-        except Exception as e:
-            self.logger.error("playwright_page.click: failed to click element",
-                            selector=selector,
-                            error=str(e),
-                            current_url=self._page.url)
-            raise
+        with self._telemetry.timed_operation("browser_click", {"selector": selector}):
+            self.logger.info("playwright_page.click: clicking element", selector=selector)
+            try:
+                await self._page.click(selector)
+                self.logger.info("playwright_page.click: element clicked successfully", selector=selector)
+            except Exception as e:
+                self.logger.error("playwright_page.click: failed to click element",
+                                selector=selector,
+                                error=str(e),
+                                current_url=self._page.url)
+                raise
 
     async def fill(self, selector: str, value: str) -> None:
         self.logger.info("playwright_page.fill: filling element",

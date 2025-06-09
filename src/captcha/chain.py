@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 
 from browser.interfaces import IPage
 from config.mcp_logger import logger
+from ..telemetry.factory import get_telemetry_provider
+from ..telemetry.interfaces import ITelemetryProvider
 from .interfaces import ICaptchaSolver
 from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
 
@@ -25,6 +27,8 @@ class CaptchaSolverHandler:
     allowing it to participate in a chain of responsibility pattern.
     If the solver fails or is unavailable, the request is passed to the next handler.
     """
+    
+    _telemetry: ITelemetryProvider = get_telemetry_provider()
     
     def __init__(
         self,
@@ -64,66 +68,83 @@ class CaptchaSolverHandler:
         """
         captcha_type = captcha_info.get("type", "unknown")
         
-        # Check if this solver can handle the captcha type
-        if not self.solver.can_handle(captcha_type):
-            self.logger.debug("captcha_handler.handle: solver cannot handle captcha type", 
-                            captcha_type=captcha_type,
-                            solver=self.solver.__class__.__name__)
-            if self.next_handler:
-                self.logger.debug("captcha_handler.handle: passing to next handler",
-                                next_solver=self.next_handler.solver.__class__.__name__)
-                return await self.next_handler.handle(page, captcha_info)
-            return None
-        
-        # Attempt to solve with circuit breaker protection
-        try:
-            self.logger.info("captcha_handler.handle: attempting to solve captcha", 
-                           captcha_type=captcha_type,
-                           solver=self.solver.__class__.__name__,
-                           circuit_breaker_state=self.circuit_breaker.state.value)
+        # Start telemetry span for this solver attempt
+        with self._telemetry.trace("captcha_solve_attempt") as trace:
+            trace.add_metadata({
+                "solver": self.solver.__class__.__name__,
+                "captcha_type": captcha_type,
+                "circuit_breaker_state": self.circuit_breaker.current_state.value if self.circuit_breaker else "no_circuit_breaker"
+            })
             
-            solution = await self.circuit_breaker.call(
-                self.solver.solve,
-                page,
-                captcha_info
-            )
+            # Check if this solver can handle the captcha type
+            if not self.solver.can_handle(captcha_type):
+                self.logger.debug("captcha_handler.handle: solver cannot handle captcha type", 
+                                captcha_type=captcha_type,
+                                solver=self.solver.__class__.__name__)
+                if self.next_handler:
+                    self.logger.debug("captcha_handler.handle: passing to next handler",
+                                    next_solver=self.next_handler.solver.__class__.__name__)
+                    return await self.next_handler.handle(page, captcha_info)
+                return None
             
-            if solution:
-                self.logger.info("captcha_handler.handle: captcha solved successfully",
+            # Attempt to solve with circuit breaker protection
+            try:
+                self.logger.info("captcha_handler.handle: attempting to solve captcha", 
+                               captcha_type=captcha_type,
                                solver=self.solver.__class__.__name__,
-                               solution_length=len(solution))
-                return solution
-            else:
-                self.logger.warning("captcha_handler.handle: solver returned no solution",
-                                  solver=self.solver.__class__.__name__)
+                               circuit_breaker_state=self.circuit_breaker.current_state.value)
                 
-        except CircuitBreakerOpen:
-            status = self.circuit_breaker.get_status()
-            self.logger.warning(
-                "captcha_handler.handle: circuit breaker is open",
-                solver=self.solver.__class__.__name__,
-                failure_count=status.get('failure_count'),
-                last_failure=status.get('last_failure_time'),
-                recovery_time=status.get('recovery_time')
-            )
-        except Exception as e:
-            self.logger.error(
-                "captcha_handler.handle: error solving captcha",
-                solver=self.solver.__class__.__name__,
-                error=str(e),
-                error_type=type(e).__name__,
-                exc_info=True
-            )
-        
-        # If failed or couldn't solve, pass to the next handler
-        if self.next_handler:
-            self.logger.info("captcha_handler.handle: passing to next handler after failure",
-                           current_solver=self.solver.__class__.__name__,
-                           next_solver=self.next_handler.solver.__class__.__name__)
-            return await self.next_handler.handle(page, captcha_info)
-        
-        self.logger.debug("captcha_handler.handle: no more handlers in chain")
-        return None
+                solution = await self.circuit_breaker.call(
+                    self.solver.solve,
+                    page,
+                    captcha_info
+                )
+                
+                if solution:
+                    self.logger.info("captcha_handler.handle: captcha solved successfully",
+                                   solver=self.solver.__class__.__name__,
+                                   solution_length=len(solution))
+                    trace.add_metadata({"success": True, "solution_length": len(solution)})
+                    return solution
+                else:
+                    self.logger.warning("captcha_handler.handle: solver returned no solution",
+                                      solver=self.solver.__class__.__name__)
+                    trace.add_metadata({"success": False, "reason": "no_solution"})
+                    
+            except CircuitBreakerOpen:
+                status = self.circuit_breaker.get_status()
+                self.logger.warning(
+                    "captcha_handler.handle: circuit breaker is open",
+                    solver=self.solver.__class__.__name__,
+                    failure_count=status.get('failure_count'),
+                    last_failure=status.get('last_failure_time'),
+                    recovery_time=status.get('recovery_time')
+                )
+                trace.add_metadata({"success": False, "reason": "circuit_breaker_open"})
+            except Exception as e:
+                self.logger.error(
+                    "captcha_handler.handle: error solving captcha",
+                    solver=self.solver.__class__.__name__,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    exc_info=True
+                )
+                trace.add_metadata({
+                    "success": False, 
+                    "reason": "exception",
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+            
+            # If failed or couldn't solve, pass to the next handler
+            if self.next_handler:
+                self.logger.info("captcha_handler.handle: passing to next handler after failure",
+                               current_solver=self.solver.__class__.__name__,
+                               next_solver=self.next_handler.solver.__class__.__name__)
+                return await self.next_handler.handle(page, captcha_info)
+            
+            self.logger.debug("captcha_handler.handle: no more handlers in chain")
+            return None
     
     def set_next(self, handler: 'CaptchaSolverHandler') -> 'CaptchaSolverHandler':
         """Set the next handler in the chain.
