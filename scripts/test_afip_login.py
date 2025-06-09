@@ -20,9 +20,9 @@ async def test_afip_login():
     # Create browser factory
     browser_factory = BrowserEngineFactory()
     
-    # Configure browser (non-headless for debugging)
+    # Configure browser (headless mode)
     browser_config = BrowserConfig(
-        headless=False,  # Set to False to see the browser
+        headless=True,  # Run in headless mode
         viewport={"width": 1280, "height": 720}
     )
     

@@ -15,7 +15,7 @@ async def test_selenium():
     factory = BrowserEngineFactory()
     
     config = BrowserConfig(
-        headless=False,
+        headless=True,
         viewport={"width": 1280, "height": 720}
     )
     

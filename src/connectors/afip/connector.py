@@ -73,7 +73,7 @@ class AFIPConnector(IAFIPConnector):
         self.session_storage = session_storage or EncryptedSessionStorage("/tmp/afip_sessions")
         self.captcha_chain = captcha_chain or self._create_default_captcha_chain()
         self.browser_config = browser_config or BrowserConfig(
-            headless=False,  # AFIP detects and blocks headless browsers
+            headless=True,  # Use headless mode for better performance
             viewport={"width": 1280, "height": 720}
         )
 

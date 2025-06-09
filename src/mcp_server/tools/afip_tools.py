@@ -36,7 +36,7 @@ async def _get_connector() -> AFIPConnector:
         
         session_storage = EncryptedSessionStorage("/tmp/afip_sessions")
         browser_config = BrowserConfig(
-            headless=os.getenv("AFIP_HEADLESS", "false").lower() == "true",
+            headless=os.getenv("AFIP_HEADLESS", "true").lower() == "true",
             viewport={"width": 1280, "height": 720}
         )
         

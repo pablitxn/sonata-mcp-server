@@ -18,7 +18,7 @@ async def minimal_afip_login():
     
     # Setup
     factory = BrowserEngineFactory()
-    config = BrowserConfig(headless=False)
+    config = BrowserConfig(headless=True)
     
     # Create browser
     print("1. Creating browser...")

@@ -41,7 +41,7 @@ class TestAFIPEstadoCuenta:
         
         # Create browser config (non-headless for AFIP)
         browser_config = BrowserConfig(
-            headless=False,
+            headless=True,
             viewport={"width": 1280, "height": 720}
         )
         
