@@ -31,20 +31,31 @@ async def _get_connector() -> AFIPConnector:
     global _connector_instance, _browser_factory
     
     if _connector_instance is None:
+        logger.info("afip_tools._get_connector: Creating new connector instance")
+        
         if _browser_factory is None:
+            logger.debug("afip_tools._get_connector: Initializing browser factory")
             _browser_factory = BrowserEngineFactory()
         
         session_storage = EncryptedSessionStorage("/tmp/afip_sessions")
+        headless_mode = os.getenv("AFIP_HEADLESS", "true").lower() == "true"
         browser_config = BrowserConfig(
-            headless=os.getenv("AFIP_HEADLESS", "true").lower() == "true",
+            headless=headless_mode,
             viewport={"width": 1280, "height": 720}
         )
+        
+        logger.debug("afip_tools._get_connector: Browser config created", 
+                    headless=headless_mode, 
+                    viewport_width=1280, 
+                    viewport_height=720)
         
         _connector_instance = AFIPConnector(
             browser_factory=_browser_factory,
             session_storage=session_storage,
             browser_config=browser_config
         )
+        
+        logger.info("afip_tools._get_connector: Connector instance created successfully")
     
     return _connector_instance
 
@@ -64,6 +75,10 @@ def register_afip_tools(mcp: FastMCP):
             Dictionary with login status and session information
         """
         try:
+            # Mask CUIT for logging (show first 2 and last 2 digits)
+            masked_cuit = f"{cuit[:2]}{'*' * (len(cuit.replace('-', '')) - 4)}{cuit.replace('-', '')[-2:]}"
+            logger.info("afip_tools.afip_login: Starting login attempt", cuit=masked_cuit)
+            
             connector = await _get_connector()
             
             credentials = AFIPCredentials(
@@ -71,8 +86,12 @@ def register_afip_tools(mcp: FastMCP):
                 password=password
             )
             
-            logger.info("afip_login_attempt", cuit=cuit)
+            logger.debug("afip_tools.afip_login: Credentials prepared, calling connector.login")
             status = await connector.login(credentials)
+            
+            logger.info("afip_tools.afip_login: Login attempt completed", 
+                       status=status.value, 
+                       status_message=_get_status_message(status))
             
             result = {
                 "success": status == LoginStatus.SUCCESS,
@@ -82,6 +101,7 @@ def register_afip_tools(mcp: FastMCP):
             }
             
             if status == LoginStatus.SUCCESS:
+                logger.debug("afip_tools.afip_login: Login successful, retrieving session info")
                 session = await connector.get_session()
                 if session:
                     result["session"] = {
@@ -89,12 +109,19 @@ def register_afip_tools(mcp: FastMCP):
                         "expires_at": session.expires_at.isoformat(),
                         "is_valid": session.is_valid
                     }
+                    logger.info("afip_tools.afip_login: Session info retrieved", 
+                               session_valid=session.is_valid,
+                               expires_at=session.expires_at.isoformat())
+                else:
+                    logger.warning("afip_tools.afip_login: Login successful but no session info available")
             
-            logger.info("afip_login_result", status=status.value, success=result["success"])
             return result
             
         except Exception as e:
-            logger.error("afip_login_error", error=str(e), exc_info=True)
+            logger.error("afip_tools.afip_login: Login failed with exception", 
+                        error=str(e), 
+                        error_type=type(e).__name__,
+                        exc_info=True)
             return {
                 "success": False,
                 "status": "error",
@@ -111,9 +138,23 @@ def register_afip_tools(mcp: FastMCP):
             Dictionary with logout status
         """
         try:
+            logger.info("afip_tools.afip_logout: Starting logout operation")
+            
             connector = await _get_connector()
             
+            # Check if there's an active session before logout
+            session = await connector.get_session()
+            if session:
+                masked_cuit = f"{session.cuit[:2]}{'*' * (len(session.cuit) - 4)}{session.cuit[-2:]}"
+                logger.debug("afip_tools.afip_logout: Active session found", cuit=masked_cuit)
+            else:
+                logger.warning("afip_tools.afip_logout: No active session to logout from")
+            
             success = await connector.logout()
+            
+            logger.info("afip_tools.afip_logout: Logout operation completed", 
+                       success=success,
+                       message="Logout successful" if success else "Logout failed")
             
             return {
                 "success": success,
@@ -122,7 +163,10 @@ def register_afip_tools(mcp: FastMCP):
             }
             
         except Exception as e:
-            logger.error("afip_logout_error", error=str(e), exc_info=True)
+            logger.error("afip_tools.afip_logout: Logout failed with exception", 
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        exc_info=True)
             return {
                 "success": False,
                 "message": f"Error during logout: {str(e)}",
@@ -147,25 +191,33 @@ def register_afip_tools(mcp: FastMCP):
             Dictionary with account statement information including total debt and screenshot path
         """
         try:
+            logger.info("afip_tools.afip_get_account_statement: Starting account statement retrieval")
+            
             connector = await _get_connector()
             
             session = await connector.get_session()
             if not session:
+                logger.warning("afip_tools.afip_get_account_statement: No active session found")
                 return {
                     "success": False,
                     "message": "No active session. Please login first.",
                     "timestamp": datetime.now().isoformat()
                 }
             
+            masked_cuit = f"{session.cuit[:2]}{'*' * (len(session.cuit) - 4)}{session.cuit[-2:]}"
+            logger.debug("afip_tools.afip_get_account_statement: Session validated", 
+                        cuit=masked_cuit,
+                        session_valid=session.is_valid)
+            
             # Convert empty strings to None for the connector
             period_from_value = period_from if period_from else None
             period_to_value = period_to if period_to else None
             calculation_date_value = calculation_date if calculation_date else None
             
-            logger.info("afip_account_statement_request", 
-                       period_from=period_from_value, 
-                       period_to=period_to_value,
-                       calculation_date=calculation_date_value)
+            logger.info("afip_tools.afip_get_account_statement: Requesting statement with parameters", 
+                       period_from=period_from_value or "default", 
+                       period_to=period_to_value or "default",
+                       calculation_date=calculation_date_value or "default")
             
             statement = await connector.get_account_statement(
                 period_from=period_from_value,
@@ -174,6 +226,13 @@ def register_afip_tools(mcp: FastMCP):
             )
             
             if statement:
+                logger.info("afip_tools.afip_get_account_statement: Statement retrieved successfully",
+                           total_debt=statement.total_debt,
+                           period_from=statement.period_from,
+                           period_to=statement.period_to,
+                           calculation_date=statement.calculation_date,
+                           screenshot_saved=bool(statement.screenshot_path))
+                
                 return {
                     "success": True,
                     "total_debt": statement.total_debt,
@@ -185,6 +244,7 @@ def register_afip_tools(mcp: FastMCP):
                     "timestamp": datetime.now().isoformat()
                 }
             else:
+                logger.warning("afip_tools.afip_get_account_statement: Failed to retrieve statement")
                 return {
                     "success": False,
                     "message": "Failed to retrieve account statement",
@@ -192,7 +252,10 @@ def register_afip_tools(mcp: FastMCP):
                 }
                 
         except Exception as e:
-            logger.error("afip_account_statement_error", error=str(e), exc_info=True)
+            logger.error("afip_tools.afip_get_account_statement: Statement retrieval failed with exception", 
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        exc_info=True)
             return {
                 "success": False,
                 "message": f"Error retrieving account statement: {str(e)}",
@@ -208,21 +271,31 @@ def register_afip_tools(mcp: FastMCP):
             Dictionary with list of pending payments
         """
         try:
+            logger.info("afip_tools.afip_get_pending_payments: Starting pending payments retrieval")
+            
             connector = await _get_connector()
             
             session = await connector.get_session()
             if not session:
+                logger.warning("afip_tools.afip_get_pending_payments: No active session found")
                 return {
                     "success": False,
                     "message": "No active session. Please login first.",
                     "timestamp": datetime.now().isoformat()
                 }
             
-            logger.info("afip_pending_payments_request")
+            masked_cuit = f"{session.cuit[:2]}{'*' * (len(session.cuit) - 4)}{session.cuit[-2:]}"
+            logger.debug("afip_tools.afip_get_pending_payments: Session validated", 
+                        cuit=masked_cuit,
+                        session_valid=session.is_valid)
+            
+            logger.info("afip_tools.afip_get_pending_payments: Requesting pending payments from connector")
             
             payments = await connector.get_pending_payments()
             
             payment_list = []
+            total_amount = 0.0
+            
             for payment in payments:
                 payment_list.append({
                     "id": payment.id,
@@ -233,6 +306,11 @@ def register_afip_tools(mcp: FastMCP):
                     "tax_type": payment.tax_type,
                     "period": payment.period
                 })
+                total_amount += payment.amount
+            
+            logger.info("afip_tools.afip_get_pending_payments: Payments retrieved successfully",
+                       payment_count=len(payment_list),
+                       total_amount=total_amount)
             
             return {
                 "success": True,
@@ -242,7 +320,10 @@ def register_afip_tools(mcp: FastMCP):
             }
             
         except Exception as e:
-            logger.error("afip_pending_payments_error", error=str(e), exc_info=True)
+            logger.error("afip_tools.afip_get_pending_payments: Payment retrieval failed with exception", 
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        exc_info=True)
             return {
                 "success": False,
                 "message": f"Error retrieving payments: {str(e)}",
@@ -258,10 +339,19 @@ def register_afip_tools(mcp: FastMCP):
             Dictionary with session information
         """
         try:
+            logger.info("afip_tools.afip_get_session_status: Checking session status")
+            
             connector = await _get_connector()
             session = await connector.get_session()
             
             if session:
+                masked_cuit = f"{session.cuit[:2]}{'*' * (len(session.cuit) - 4)}{session.cuit[-2:]}"
+                logger.info("afip_tools.afip_get_session_status: Active session found",
+                           cuit=masked_cuit,
+                           is_valid=session.is_valid,
+                           created_at=session.created_at.isoformat(),
+                           expires_at=session.expires_at.isoformat())
+                
                 return {
                     "success": True,
                     "has_session": True,
@@ -272,6 +362,7 @@ def register_afip_tools(mcp: FastMCP):
                     "timestamp": datetime.now().isoformat()
                 }
             else:
+                logger.info("afip_tools.afip_get_session_status: No active session found")
                 return {
                     "success": True,
                     "has_session": False,
@@ -280,7 +371,10 @@ def register_afip_tools(mcp: FastMCP):
                 }
                 
         except Exception as e:
-            logger.error("afip_session_status_error", error=str(e), exc_info=True)
+            logger.error("afip_tools.afip_get_session_status: Session check failed with exception", 
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        exc_info=True)
             return {
                 "success": False,
                 "message": f"Error checking session: {str(e)}",

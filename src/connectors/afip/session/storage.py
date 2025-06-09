@@ -57,11 +57,17 @@ class InMemorySessionStorage(ISessionStorage):
         try:
             # Store session using CUIT as unique identifier
             self._sessions[session.cuit] = session
-            self.logger.info("session_saved", cuit=session.cuit)
+            self.logger.info("memory_storage.save: session saved", 
+                           cuit=session.cuit,
+                           session_id=session.session_id,
+                           expires_at=session.expires_at)
             return True
         except Exception as e:
             # Log any unexpected errors during save operation
-            self.logger.error("session_save_error", error=str(e))
+            self.logger.error("memory_storage.save: error saving session", 
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            cuit=session.cuit)
             return False
     
     async def load(self, cuit: str) -> Optional[AFIPSession]:
@@ -80,10 +86,13 @@ class InMemorySessionStorage(ISessionStorage):
         session = self._sessions.get(cuit)
         
         if session:
-            self.logger.info("session_loaded", cuit=cuit)
+            self.logger.info("memory_storage.load: session loaded", 
+                           cuit=cuit,
+                           session_id=session.session_id,
+                           is_valid=session.is_valid)
         else:
             # Use debug level for not found as it's often expected behavior
-            self.logger.debug("session_not_found", cuit=cuit)
+            self.logger.debug("memory_storage.load: session not found", cuit=cuit)
         
         return session
     
@@ -102,10 +111,11 @@ class InMemorySessionStorage(ISessionStorage):
         if cuit in self._sessions:
             # Remove session from dictionary
             del self._sessions[cuit]
-            self.logger.info("session_deleted", cuit=cuit)
+            self.logger.info("memory_storage.delete: session deleted", cuit=cuit)
             return True
         
         # Session not found - nothing to delete
+        self.logger.debug("memory_storage.delete: session not found", cuit=cuit)
         return False
     
     async def is_valid(self, session: AFIPSession) -> bool:
@@ -126,7 +136,10 @@ class InMemorySessionStorage(ISessionStorage):
         
         # Check if session has expired by comparing with current time
         if datetime.now() >= session.expires_at:
-            self.logger.warning("session_expired", cuit=session.cuit)
+            self.logger.warning("memory_storage.is_valid: session expired", 
+                              cuit=session.cuit,
+                              expired_at=session.expires_at,
+                              current_time=datetime.now())
             return False
         
         # Session is valid and not expired
@@ -203,7 +216,8 @@ class EncryptedSessionStorage(ISessionStorage):
         # This prevents other users on the system from reading the key
         os.chmod(key_path, 0o600)
         
-        self.logger.info("encryption_key_saved")
+        self.logger.info("encrypted_storage._save_encryption_key: encryption key saved",
+                       key_path=str(key_path))
     
     def _get_session_path(self, cuit: str) -> Path:
         """Get the file path for a session.
@@ -307,17 +321,21 @@ class EncryptedSessionStorage(ISessionStorage):
             os.chmod(session_path, 0o600)
             
             self.logger.info(
-                "session_saved_encrypted",
+                "encrypted_storage.save: session saved and encrypted",
                 cuit=session.cuit,
-                path=str(session_path)
+                session_id=session.session_id,
+                path=str(session_path),
+                file_size=session_path.stat().st_size
             )
             return True
             
         except Exception as e:
             # Log full exception details for debugging
             self.logger.error(
-                "session_save_error",
+                "encrypted_storage.save: error saving session",
                 error=str(e),
+                error_type=type(e).__name__,
+                cuit=session.cuit,
                 exc_info=True  # Include full traceback
             )
             return False
@@ -347,7 +365,9 @@ class EncryptedSessionStorage(ISessionStorage):
             # Check if session file exists
             if not session_path.exists():
                 # Not an error - session might not exist yet
-                self.logger.debug("session_file_not_found", cuit=cuit)
+                self.logger.debug("encrypted_storage.load: session file not found", 
+                                cuit=cuit,
+                                path=str(session_path))
                 return None
             
             # Read encrypted data from disk
@@ -360,15 +380,21 @@ class EncryptedSessionStorage(ISessionStorage):
             session_data = json.loads(decrypted_data.decode())
             session = self._deserialize_session(session_data)
             
-            self.logger.info("session_loaded_decrypted", cuit=cuit)
+            self.logger.info("encrypted_storage.load: session loaded and decrypted", 
+                           cuit=cuit,
+                           session_id=session.session_id,
+                           is_valid=session.is_valid,
+                           expires_at=session.expires_at)
             return session
             
         except Exception as e:
             # Could be decryption error, JSON parsing error, or file access error
             self.logger.error(
-                "session_load_error",
+                "encrypted_storage.load: error loading session",
                 error=str(e),
+                error_type=type(e).__name__,
                 cuit=cuit,
+                path=str(session_path) if 'session_path' in locals() else None,
                 exc_info=True  # Include full traceback for debugging
             )
             return None
@@ -391,18 +417,25 @@ class EncryptedSessionStorage(ISessionStorage):
             if session_path.exists():
                 # Remove the file from disk
                 session_path.unlink()
-                self.logger.info("session_deleted", cuit=cuit)
+                self.logger.info("encrypted_storage.delete: session deleted", 
+                               cuit=cuit,
+                               path=str(session_path))
                 return True
             
             # File doesn't exist - nothing to delete
+            self.logger.debug("encrypted_storage.delete: session file not found",
+                            cuit=cuit,
+                            path=str(session_path))
             return False
             
         except Exception as e:
             # Could be permission error or filesystem issue
             self.logger.error(
-                "session_delete_error",
+                "encrypted_storage.delete: error deleting session",
                 error=str(e),
-                cuit=cuit
+                error_type=type(e).__name__,
+                cuit=cuit,
+                path=str(session_path) if 'session_path' in locals() else None
             )
             return False
     
@@ -428,11 +461,14 @@ class EncryptedSessionStorage(ISessionStorage):
             return False
         
         # Second check: expiration time
-        if datetime.now() >= session.expires_at:
+        now = datetime.now()
+        if now >= session.expires_at:
             self.logger.warning(
-                "session_expired",
+                "encrypted_storage.is_valid: session expired",
                 cuit=session.cuit,
-                expired_at=session.expires_at.isoformat()
+                expired_at=session.expires_at.isoformat(),
+                current_time=now.isoformat(),
+                expired_by=(now - session.expires_at).total_seconds()
             )
             
             # Mark session as invalid and persist the change

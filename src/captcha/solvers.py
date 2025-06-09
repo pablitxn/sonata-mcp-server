@@ -99,7 +99,8 @@ class CapSolverAI(ICaptchaSolver):
             elif captcha_type in ["recaptcha_v2", "recaptcha_v3"]:
                 site_key = captcha_info.get("site_key")
                 if not site_key:
-                    self.logger.error("recaptcha_site_key_missing")
+                    self.logger.error("capsolver.solve: recaptcha site key missing",
+                                    captcha_type=captcha_type)
                     return None
                 
                 # In production, this would integrate with CapSolver's ReCaptcha solving
@@ -199,7 +200,8 @@ class TwoCaptchaSolver(ICaptchaSolver):
                 page_url = await page.evaluate("() => window.location.href")
                 
                 if not site_key:
-                    self.logger.error("recaptcha_site_key_missing")
+                    self.logger.error("twocaptcha.solve: recaptcha site key missing",
+                                    captcha_type=captcha_type)
                     return None
                 
                 self.logger.info(
