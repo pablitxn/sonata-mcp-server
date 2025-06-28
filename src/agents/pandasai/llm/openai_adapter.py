@@ -23,6 +23,13 @@ class ConfigurableLLM(LLM):
         # Get API key from environment if not provided
         if api_key is None:
             api_key = os.getenv('LLM_API_KEY')
+            # Fallback to OPENAI_API_KEY if LLM_API_KEY is not set
+            if not api_key and self.provider == 'openai':
+                api_key = os.getenv('OPENAI_API_KEY')
+            
+        if not api_key:
+            raise ValueError(f"API key not found for provider {self.provider}. "
+                           f"Please set LLM_API_KEY or OPENAI_API_KEY environment variable.")
             
         super().__init__(api_key=api_key, **kwargs)
         

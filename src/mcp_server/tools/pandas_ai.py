@@ -40,9 +40,18 @@ def register_pandas_ai_tools(mcp: FastMCP):
             logger.info("query_spreadsheet: Starting query", file_name=file_name, query=query)
             
             # Import here to avoid circular imports
-            from agents.pandasai import Agent
-            from agents.pandasai.llm.openai_adapter import ConfigurableLLM
-            from agents.pandasai.config import Config
+            import sys
+            from pathlib import Path
+            
+            # Add the agents directory to Python path as if pandasai was installed
+            agents_path = Path(__file__).parent.parent.parent / "agents"
+            if str(agents_path) not in sys.path:
+                sys.path.insert(0, str(agents_path))
+            
+            from pandasai import Agent
+            from pandasai.dataframe import DataFrame
+            from pandasai.llm.openai_adapter import ConfigurableLLM
+            from pandasai.config import Config
             
             # For now, we use the hardcoded mock file path
             # TODO: Integrate with file storage system when available
@@ -56,10 +65,13 @@ def register_pandas_ai_tools(mcp: FastMCP):
             
             # Load the Excel file into a pandas DataFrame
             logger.debug("query_spreadsheet: Loading Excel file", path=str(file_path))
-            df = pd.read_excel(file_path)
+            pandas_df = pd.read_excel(file_path)
             logger.info("query_spreadsheet: DataFrame loaded", 
-                       shape=df.shape, 
-                       columns=list(df.columns))
+                       shape=pandas_df.shape, 
+                       columns=list(pandas_df.columns))
+            
+            # Convert pandas DataFrame to PandasAI DataFrame
+            df = DataFrame(pandas_df, name=file_name, description="Spreadsheet data for analysis")
             
             # Initialize the LLM adapter with environment configuration
             logger.debug("query_spreadsheet: Initializing LLM")
