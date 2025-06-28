@@ -5,10 +5,10 @@ from typing import Any, Dict, List, Optional
 
 from mcp.types import Tool
 
-from src.config.logger import get_logger
-from src.connectors.atc_sports.connector import ATCSportsConnector
-from src.connectors.atc_sports.interfaces import DateRange, TimeRange
-from src.telemetry.context import trace
+from config.logger import get_logger
+from connectors.atc_sports.connector import ATCSportsConnector
+from connectors.atc_sports.interfaces import DateRange, TimeRange
+from telemetry.context import trace
 
 logger = get_logger(__name__)
 
@@ -653,7 +653,7 @@ async def execute_atc_sports_tool(tool_name: str, arguments: Dict[str, Any]) -> 
             ]
             
         elif tool_name == "atc_sports_search_courts_near":
-            from src.connectors.atc_sports.interfaces import Coordinates
+            from connectors.atc_sports.interfaces import Coordinates
             
             coordinates = None
             if "coordinates" in arguments:

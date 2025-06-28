@@ -5,10 +5,10 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from src.browser.interfaces import IPage
-from src.browser.factory import BrowserEngineFactory
-from src.config.logger import get_logger
-from src.connectors.atc_sports.interfaces import (
+from browser.interfaces import IPage
+from browser.factory import BrowserEngineFactory
+from config.logger import get_logger
+from connectors.atc_sports.interfaces import (
     Booking,
     Coordinates,
     CourtAvailability,
@@ -18,8 +18,8 @@ from src.connectors.atc_sports.interfaces import (
     SessionStatus,
     TimeRange,
 )
-from src.connectors.atc_sports.session.storage import ATCSportsSessionStorage
-from src.telemetry.context import trace
+from connectors.atc_sports.session.storage import ATCSportsSessionStorage
+from telemetry.context import trace
 
 logger = get_logger(__name__)
 
@@ -37,7 +37,7 @@ class ATCSportsConnector(IATCSportsConnector):
     async def _get_page(self) -> IPage:
         """Get or create a browser page."""
         if self._page is None:
-            from src.browser.interfaces import BrowserConfig
+            from browser.interfaces import BrowserConfig
             config = BrowserConfig(headless=True)
             self._engine = await self.browser_factory.create_engine("playwright", config)
             self._context = await self._engine.create_context({})

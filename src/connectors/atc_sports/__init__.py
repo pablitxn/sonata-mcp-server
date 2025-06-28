@@ -1,5 +1,5 @@
-from src.connectors.atc_sports.connector import ATCSportsConnector
-from src.connectors.atc_sports.interfaces import (
+from connectors.atc_sports.connector import ATCSportsConnector
+from connectors.atc_sports.interfaces import (
     Booking,
     Coordinates,
     CourtAvailability,

@@ -5,7 +5,7 @@ import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, Optional, TypeVar, Union
 
-from src.config.telemetry_logger import logger, get_telemetry, add_telemetry_context
+from config.telemetry_logger import logger, get_telemetry, add_telemetry_context
 from .interfaces import SpanKind
 
 

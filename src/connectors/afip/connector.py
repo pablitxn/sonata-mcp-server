@@ -13,14 +13,14 @@ from typing import Any, Dict, List, Optional
 
 from selenium.common.exceptions import TimeoutException
 
-from src.browser.factory import BrowserEngineFactory
-from src.browser.interfaces import BrowserConfig, IBrowserContext, IPage
-from src.captcha.chain import CaptchaChain
-from src.captcha.circuit_breaker import CircuitBreakerConfig
-from src.captcha.solvers import AntiCaptchaSolver, CapSolverAI, TwoCaptchaSolver
-from src.config.mcp_logger import logger
-from ...telemetry.factory import get_telemetry_provider
-from ...telemetry.interfaces import ITelemetryProvider
+from browser.factory import BrowserEngineFactory
+from browser.interfaces import BrowserConfig, IBrowserContext, IPage
+from captcha.chain import CaptchaChain
+from captcha.circuit_breaker import CircuitBreakerConfig
+from captcha.solvers import AntiCaptchaSolver, CapSolverAI, TwoCaptchaSolver
+from config.mcp_logger import logger
+from telemetry.factory import get_telemetry_provider
+from telemetry.interfaces import ITelemetryProvider
 from .interfaces import (
     AFIPCredentials,
     AFIPSession,
@@ -146,7 +146,7 @@ class AFIPConnector(IAFIPConnector):
         """
         if not self._context:
             # Use Selenium as the default engine (more stable for AFIP)
-            from src.browser.interfaces import BrowserType
+            from browser.interfaces import BrowserType
             
             self.logger.info("connector._initialize_browser: starting browser initialization",
                            browser_type="SELENIUM",

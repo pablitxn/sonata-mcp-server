@@ -5,8 +5,8 @@ import sys
 import structlog
 import logging
 
-from src.telemetry.factory import TelemetryFactory
-from src.telemetry.processors import TelemetryProcessor, PerformanceProcessor
+from telemetry.factory import TelemetryFactory
+from telemetry.processors import TelemetryProcessor, PerformanceProcessor
 
 
 def configure_telemetry_logging():
@@ -62,8 +62,8 @@ configure_telemetry_logging()
 logger = structlog.get_logger()
 
 # Export telemetry helpers
-from src.telemetry.processors import add_telemetry_context
-from src.telemetry.factory import TelemetryFactory
+from telemetry.processors import add_telemetry_context
+from telemetry.factory import TelemetryFactory
 
 
 def get_telemetry():

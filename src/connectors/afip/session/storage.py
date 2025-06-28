@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 
 from cryptography.fernet import Fernet
 
-from src.config.mcp_logger import logger
+from config.mcp_logger import logger
 from ..interfaces import AFIPSession, ISessionStorage
 
 
