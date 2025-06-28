@@ -6,23 +6,24 @@ PandasAI is a wrapper around a LLM to make dataframes conversational
 import os
 from typing import List, Optional, Union
 
+import pandas
 import pandas as pd
 
-from pandasai.config import APIKeyManager, ConfigManager
-from pandasai.data_loader.semantic_layer_schema import (
+from .config import APIKeyManager, ConfigManager
+from .data_loader.semantic_layer_schema import (
     Column,
     Relation,
     SemanticLayerSchema,
     Source,
     Transformation,
 )
-from pandasai.exceptions import DatasetNotFound, InvalidConfigError
-from pandasai.helpers.path import (
+from .exceptions import DatasetNotFound, InvalidConfigError
+from .helpers.path import (
     find_project_root,
     get_validated_dataset_path,
     transform_dash_to_underscore,
 )
-from pandasai.sandbox.sandbox import Sandbox
+from .sandbox.sandbox import Sandbox
 
 from .agent import Agent
 from .data_loader.loader import DatasetLoader

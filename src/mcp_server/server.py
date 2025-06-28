@@ -5,6 +5,7 @@ from .tools.basic_tools import register_basic_tools
 from .tools.google_search import register_google_search_tool
 from .tools.afip_tools import register_afip_tools
 from .tools.atc_sports_tools import ATC_SPORTS_TOOLS, execute_atc_sports_tool
+from .tools.pandas_ai import register_pandas_ai_tools
 # from mcp_server.mcp_server.memory_tools import register_memory_tools
 
 load_dotenv()
@@ -34,10 +35,11 @@ def register_atc_sports_tools(mcp_server: FastMCP):
 
 def register_all_tools(mcp_server: FastMCP):
     """Register all mcp_server with the MCP server."""
-    register_basic_tools(mcp_server)
-    register_google_search_tool(mcp_server)
-    register_afip_tools(mcp_server)
-    register_atc_sports_tools(mcp_server)
+    # register_basic_tools(mcp_server)
+    # register_google_search_tool(mcp_server)
+    # register_afip_tools(mcp_server)
+    # register_atc_sports_tools(mcp_server)
+    register_pandas_ai_tools(mcp_server)
     # register_memory_tools(mcp_server)
 
 
