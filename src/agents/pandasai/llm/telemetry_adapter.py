@@ -103,8 +103,8 @@ class TelemetryLLM(LLM):
             if context:
                 metadata.update({
                     "has_memory": bool(context.memory),
-                    "memory_items": len(context.memory) if context.memory else 0,
-                    "has_intermediate_steps": bool(context.intermediate_steps),
+                    "memory_items": context.memory.count() if context.memory else 0,
+                    "has_intermediate_values": bool(context.intermediate_values) if hasattr(context, 'intermediate_values') else False,
                 })
             
             return self.llm_telemetry.generation_span(
@@ -150,7 +150,7 @@ class TelemetryLLM(LLM):
             "llm_request_started",
             provider=self.provider,
             model=self.model,
-            prompt_length=len(instruction.to_string()),
+            prompt_length=len(instruction.to_string()) if instruction and hasattr(instruction, 'to_string') and instruction.to_string() else 0,
             temperature=data["temperature"],
             max_tokens=data["max_tokens"]
         )
@@ -162,7 +162,7 @@ class TelemetryLLM(LLM):
                 self.api_endpoint,
                 headers=headers,
                 json=data,
-                timeout=60.0
+                timeout=300.0  # 5 minutes timeout for complex queries
             )
             response.raise_for_status()
             
@@ -191,7 +191,7 @@ class TelemetryLLM(LLM):
             "llm_response_received",
             provider=self.provider,
             model=self.model,
-            response_length=len(response_content),
+            response_length=len(response_content) if response_content else 0,
             duration_ms=elapsed_time * 1000,
             prompt_tokens=usage.get("prompt_tokens", 0),
             completion_tokens=usage.get("completion_tokens", 0),
@@ -227,7 +227,7 @@ class TelemetryLLM(LLM):
             "llm_request_started",
             provider=self.provider,
             model=self.model,
-            prompt_length=len(instruction.to_string()),
+            prompt_length=len(instruction.to_string()) if instruction and hasattr(instruction, 'to_string') and instruction.to_string() else 0,
             temperature=data["options"]["temperature"],
             max_tokens=data["options"]["num_predict"]
         )
@@ -238,7 +238,7 @@ class TelemetryLLM(LLM):
             response = client.post(
                 self.api_endpoint,
                 json=data,
-                timeout=120.0  # Ollama can be slower
+                timeout=300.0  # 5 minutes timeout for complex queries
             )
             response.raise_for_status()
             
@@ -253,7 +253,7 @@ class TelemetryLLM(LLM):
             "llm_response_received",
             provider=self.provider,
             model=self.model,
-            response_length=len(response_content),
+            response_length=len(response_content) if response_content else 0,
             duration_ms=elapsed_time * 1000
         )
         
@@ -285,8 +285,8 @@ class TelemetryLLM(LLM):
                 provider=self.provider,
                 model=self.model,
                 prompt_type=instruction.__class__.__name__,
-                prompt_preview=instruction.to_string()[:200] + "..." if len(instruction.to_string()) > 200 else instruction.to_string(),
-                response_preview=response[:200] + "..." if len(response) > 200 else response,
+                prompt_preview=instruction.to_string()[:200] + "..." if instruction and hasattr(instruction, 'to_string') and instruction.to_string() and len(instruction.to_string()) > 200 else (instruction.to_string() if instruction and hasattr(instruction, 'to_string') else ""),
+                response_preview=response[:200] + "..." if response and len(response) > 200 else (response or ""),
                 success=True
             )
 

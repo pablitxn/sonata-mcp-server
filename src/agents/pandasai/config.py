@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, ConfigDict
 
 from pandasai.helpers.filemanager import DefaultFileManager, FileManager
-from pandasai.llm.base import LLM
+from .llm.base import LLM
 
 
 class Config(BaseModel):

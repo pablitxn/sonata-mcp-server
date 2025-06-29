@@ -38,7 +38,7 @@ class TelemetryCodeGenerator(CodeGenerator):
         
         # Set context for all subsequent logs
         self._telemetry_logger.set_context(
-            conversation_id=self._context.prompt_id,
+            conversation_id=self._context.last_prompt_id,
             phase="code_generation"
         )
         
@@ -49,8 +49,8 @@ class TelemetryCodeGenerator(CodeGenerator):
                 event_type="thinking_start",
                 phase="code_generation",
                 prompt_type=prompt.__class__.__name__,
-                prompt_length=len(prompt_str),
-                conversation_id=self._context.prompt_id
+                prompt_length=len(prompt_str) if prompt_str else 0,
+                conversation_id=self._context.last_prompt_id
             )
             
             # Log prompt details
@@ -86,9 +86,9 @@ class TelemetryCodeGenerator(CodeGenerator):
                 phase="code_generation",
                 total_duration_ms=total_time * 1000,
                 generation_time_ms=generation_time * 1000,
-                original_code_length=len(code),
-                cleaned_code_length=len(cleaned_code),
-                conversation_id=self._context.prompt_id
+                original_code_length=len(code) if code else 0,
+                cleaned_code_length=len(cleaned_code) if cleaned_code else 0,
+                conversation_id=self._context.last_prompt_id
             )
             
             return cleaned_code
@@ -106,7 +106,7 @@ class TelemetryCodeGenerator(CodeGenerator):
                 error_message=str(e),
                 stack_trace=stack_trace,
                 duration_ms=(time.time() - generation_start) * 1000,
-                conversation_id=self._context.prompt_id
+                conversation_id=self._context.last_prompt_id
             )
             
             self._telemetry_logger.log_error(error_message)
@@ -119,12 +119,12 @@ class TelemetryCodeGenerator(CodeGenerator):
             
     def _log_prompt_analysis(self, prompt: BasePrompt):
         """Analyze and log prompt details for thinking visibility."""
-        prompt_str = prompt.to_string()
+        prompt_str = prompt.to_string() if prompt and hasattr(prompt, 'to_string') else ""
         
         # Extract key components from prompt
         analysis = {
             "has_dataframe_info": "dataframe" in prompt_str.lower(),
-            "has_memory_context": hasattr(self._context, 'memory') and len(self._context.memory) > 0,
+            "has_memory_context": hasattr(self._context, 'memory') and self._context.memory and self._context.memory.count() > 0,
             "has_error_context": "error" in prompt_str.lower() or "exception" in prompt_str.lower(),
             "has_retry_context": "retry" in prompt_str.lower() or "correct" in prompt_str.lower(),
         }
@@ -139,7 +139,7 @@ class TelemetryCodeGenerator(CodeGenerator):
         if analysis["has_memory_context"]:
             self._telemetry_logger.log_thinking_step(
                 "reviewing_conversation_history",
-                f"Considering {len(self._context.memory)} previous interactions"
+                f"Considering {self._context.memory.count()} previous interactions"
             )
             
         if analysis["has_error_context"]:
@@ -165,6 +165,8 @@ class TelemetryCodeGenerator(CodeGenerator):
     def _log_code_analysis(self, code: str, generation_time: float):
         """Analyze and log generated code for visibility."""
         # Basic code analysis
+        if not code:
+            code = ""
         lines = code.strip().split('\n')
         imports = [line for line in lines if line.strip().startswith('import') or line.strip().startswith('from')]
         functions = [line for line in lines if 'def ' in line]
@@ -262,7 +264,7 @@ class TelemetryCodeGenerator(CodeGenerator):
             event_type="thinking_step", 
             step="cleaning_complete",
             duration_ms=cleaning_time * 1000,
-            chars_removed=len(code) - len(cleaned_code),
+            chars_removed=(len(code) if code else 0) - (len(cleaned_code) if cleaned_code else 0),
             lines_before=len(code.split('\n')),
             lines_after=len(cleaned_code.split('\n'))
         )

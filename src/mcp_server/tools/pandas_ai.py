@@ -38,6 +38,10 @@ def register_pandas_ai_tools(mcp: FastMCP):
             TextContent with the answer to the query
         """
         try:
+            # Validate query parameter
+            if query is None:
+                query = ""
+            
             # Log query start with telemetry
             telemetry_logger.info(
                 "mcp_tool_invoked",
@@ -45,7 +49,7 @@ def register_pandas_ai_tools(mcp: FastMCP):
                 tool_name="query_spreadsheet",
                 file_name=file_name,
                 query=query,
-                query_length=len(query)
+                query_length=len(query) if query else 0
             )
             logger.info("query_spreadsheet: Starting query", file_name=file_name, query=query)
             

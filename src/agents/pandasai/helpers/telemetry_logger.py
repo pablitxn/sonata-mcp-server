@@ -15,11 +15,10 @@ class TelemetryLogger(PandasAILogger):
     def __init__(
         self,
         save_logs: bool = True,
-        logs_filename: str = "pandasai.log",
         verbose: bool = False
     ):
         """Initialize telemetry logger."""
-        super().__init__(save_logs, logs_filename, verbose)
+        super().__init__(save_logs, verbose)
         self._context = {}
         self._thinking_buffer = []
         self._code_generation_buffer = []
@@ -32,10 +31,14 @@ class TelemetryLogger(PandasAILogger):
         """Clear the logging context."""
         self._context = {}
     
-    def log(self, message: str) -> None:
+    def log(self, message: str, level: int = None) -> None:
         """Log a message with MCP telemetry integration."""
+        import logging
+        if level is None:
+            level = logging.INFO
+        
         # Call parent implementation
-        super().log(message)
+        super().log(message, level)
         
         # Determine log type and phase based on message content
         event_type = self._determine_event_type(message)
@@ -103,26 +106,32 @@ class TelemetryLogger(PandasAILogger):
         
     def log_prompt(self, prompt: str, prompt_type: str = "unknown") -> None:
         """Log a prompt sent to the LLM."""
+        if prompt is None:
+            prompt = ""
+        
         self.log(f"Prompt ({prompt_type}): {prompt[:200]}...")
         
         mcp_logger.info(
             "pandasai_prompt",
             event_type="prompt_generated",
             prompt_type=prompt_type,
-            prompt_length=len(prompt),
-            prompt_preview=prompt[:500] + "..." if len(prompt) > 500 else prompt,
+            prompt_length=len(prompt) if prompt else 0,
+            prompt_preview=prompt[:500] + "..." if prompt and len(prompt) > 500 else prompt,
             **self._context
         )
         
     def log_code(self, code: str, phase: str = "generated") -> None:
         """Log generated or executed code."""
+        if code is None:
+            code = ""
+        
         self.log(f"Code {phase}: {code[:200]}...")
         
         mcp_logger.info(
             "pandasai_code",
             event_type=f"code_{phase}",
-            code_length=len(code),
-            code_snippet=code[:500] + "..." if len(code) > 500 else code,
+            code_length=len(code) if code else 0,
+            code_snippet=code[:500] + "..." if code and len(code) > 500 else code,
             full_code=code,
             **self._context
         )
@@ -157,6 +166,9 @@ class TelemetryLogger(PandasAILogger):
     def log_thinking_start(self, query: str) -> None:
         """Log the start of the thinking process."""
         self._thinking_buffer = []
+        if query is None:
+            query = ""
+        
         self.log(f"Starting to process query: {query}")
         
         mcp_logger.info(

@@ -28,7 +28,7 @@ from pandasai.exceptions import (
 from pandasai.sandbox import Sandbox
 from pandasai.vectorstores.vectorstore import VectorStore
 
-from config import Config
+from ..config import Config
 from ..data_loader.duck_db_connection_manager import DuckDBConnectionManager
 from ..query_builders.base_query_builder import BaseQueryBuilder
 from ..query_builders.sql_parser import SQLParser
@@ -81,7 +81,7 @@ class TelemetryAgent(Agent):
             event_type="chat_started",
             query=query,
             output_type=output_type,
-            conversation_id=self._state.prompt_id
+            conversation_id=self._state.last_prompt_id
         )
         
         if self.metrics:
@@ -95,7 +95,7 @@ class TelemetryAgent(Agent):
                 event_type="chat_completed",
                 query=query,
                 output_type=output_type,
-                conversation_id=self._state.prompt_id,
+                conversation_id=self._state.last_prompt_id,
                 success=True
             )
             
@@ -110,7 +110,7 @@ class TelemetryAgent(Agent):
                 event_type="chat_failed",
                 query=query,
                 output_type=output_type,
-                conversation_id=self._state.prompt_id,
+                conversation_id=self._state.last_prompt_id,
                 error_type=type(e).__name__,
                 error_message=str(e)
             )
@@ -129,8 +129,8 @@ class TelemetryAgent(Agent):
                 kind=SpanKind.INTERNAL,
                 attributes={
                     "query": str(query),
-                    "conversation_id": self._state.prompt_id,
-                    "memory_size": len(self._state.memory),
+                    "conversation_id": self._state.last_prompt_id,
+                    "memory_size": self._state.memory.count(),
                 }
             )
         
@@ -143,7 +143,7 @@ class TelemetryAgent(Agent):
                 event_type="thinking_started",
                 phase="code_generation",
                 query=str(query),
-                conversation_id=self._state.prompt_id
+                conversation_id=self._state.last_prompt_id
             )
             
             # Add to memory with logging
@@ -152,7 +152,7 @@ class TelemetryAgent(Agent):
                 "memory_updated",
                 event_type="memory_add",
                 is_user=True,
-                memory_size=len(self._state.memory)
+                memory_size=self._state.memory.count()
             )
             
             # Log prompt generation
@@ -169,8 +169,8 @@ class TelemetryAgent(Agent):
             logger.info(
                 "prompt_generated",
                 event_type="prompt_ready",
-                prompt_length=len(prompt.to_string()),
-                prompt_preview=prompt.to_string()[:500] + "..." if len(prompt.to_string()) > 500 else prompt.to_string()
+                prompt_length=len(prompt.to_string()) if prompt and hasattr(prompt, 'to_string') and prompt.to_string() else 0,
+                prompt_preview=prompt.to_string()[:500] + "..." if prompt and hasattr(prompt, 'to_string') and prompt.to_string() and len(prompt.to_string()) > 500 else (prompt.to_string() if prompt and hasattr(prompt, 'to_string') else "")
             )
             
             # Generate code with LLM
@@ -188,9 +188,9 @@ class TelemetryAgent(Agent):
             logger.info(
                 "code_generated",
                 event_type="code_ready",
-                code_length=len(code),
+                code_length=len(code) if code else 0,
                 generation_time_ms=generation_time * 1000,
-                code_preview=code[:500] + "..." if len(code) > 500 else code
+                code_preview=code[:500] + "..." if code and len(code) > 500 else (code or "")
             )
             
             # Log full thinking process
@@ -200,7 +200,7 @@ class TelemetryAgent(Agent):
                 phase="code_generation",
                 duration_ms=generation_time * 1000,
                 generated_code=code,
-                conversation_id=self._state.prompt_id
+                conversation_id=self._state.last_prompt_id
             )
             
             if self.metrics:
@@ -218,7 +218,7 @@ class TelemetryAgent(Agent):
                 kind=SpanKind.INTERNAL,
                 attributes={
                     "code_length": len(code),
-                    "conversation_id": self._state.prompt_id,
+                    "conversation_id": self._state.last_prompt_id,
                 }
             )
         
@@ -229,8 +229,8 @@ class TelemetryAgent(Agent):
             logger.info(
                 "code_execution_started",
                 event_type="execution_started",
-                code_length=len(code),
-                code_snippet=code[:200] + "..." if len(code) > 200 else code
+                code_length=len(code) if code else 0,
+                code_snippet=code[:200] + "..." if code and len(code) > 200 else (code or "")
             )
             
             try:
@@ -264,7 +264,7 @@ class TelemetryAgent(Agent):
                         event_type="execution_output",
                         output_type=result.get("type", "unknown"),
                         output_value=str(result.get("value", ""))[:1000],  # Truncate large outputs
-                        conversation_id=self._state.prompt_id
+                        conversation_id=self._state.last_prompt_id
                     )
                 
                 if self.metrics:
@@ -303,7 +303,7 @@ class TelemetryAgent(Agent):
                 attributes={
                     "query": str(query),
                     "output_type": output_type,
-                    "conversation_id": self._state.prompt_id,
+                    "conversation_id": self._state.last_prompt_id,
                 }
             )
         
@@ -316,7 +316,7 @@ class TelemetryAgent(Agent):
                 event_type="query_started",
                 query=str(query),
                 output_type=output_type,
-                conversation_id=self._state.prompt_id,
+                conversation_id=self._state.last_prompt_id,
                 llm_type=self._state.config.llm.type if self._state.config.llm else "unknown"
             )
             
@@ -345,11 +345,11 @@ class TelemetryAgent(Agent):
                     event_type="query_completed",
                     query=str(query),
                     output_type=output_type,
-                    conversation_id=self._state.prompt_id,
+                    conversation_id=self._state.last_prompt_id,
                     total_duration_ms=total_time * 1000,
                     code_generation_retries=code_generation_retries,
                     execution_retries=execution_retries,
-                    final_code_length=len(code),
+                    final_code_length=len(code) if code else 0,
                     result_type=type(result).__name__
                 )
                 
@@ -367,7 +367,7 @@ class TelemetryAgent(Agent):
                     event_type="query_failed",
                     query=str(query),
                     output_type=output_type,
-                    conversation_id=self._state.prompt_id,
+                    conversation_id=self._state.last_prompt_id,
                     total_duration_ms=total_time * 1000,
                     error_type=type(e).__name__,
                     error_message=str(e)
@@ -461,7 +461,7 @@ class TelemetryAgent(Agent):
             event_type="code_regeneration",
             error_type=type(error).__name__,
             error_message=str(error),
-            previous_code_length=len(code)
+            previous_code_length=len(code) if code else 0
         )
         
         if isinstance(error, InvalidLLMOutputType):
@@ -476,7 +476,7 @@ class TelemetryAgent(Agent):
         logger.info(
             "code_regenerated",
             event_type="code_regenerated",
-            new_code_length=len(regenerated_code),
+            new_code_length=len(regenerated_code) if regenerated_code else 0,
             changed_lines=self._count_changed_lines(code, regenerated_code)
         )
         
